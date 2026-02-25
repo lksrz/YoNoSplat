@@ -1,0 +1,6 @@
+name: splatting_gsplat
+background_color: [0.0, 0.0, 0.0]
+make_scale_invariant: false
+prune_opacity_threshold: 0.
+training_prune_ratio: 0.
+training_prune_keep_ratio: 0.1
