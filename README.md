@@ -139,10 +139,7 @@ python -m src.main \
 You can adjust the batch size and number of GPUs/nodes to fit your hardware. Note that changing the total batch size may require adjusting the learning rate to maintain performance.
 
 ## Acknowledgements
-This project builds upon several excellent repositories:
-- [NoPoSplat](https://github.com/cvg/NoPoSplat)
-- [Pi3](https://github.com/yyfz/Pi3)
-- [pixelSplat](https://github.com/dcharatan/pixelsplat)
+This project builds upon several excellent repositories: [NoPoSplat](https://github.com/cvg/NoPoSplat), [Pi3](https://github.com/yyfz/Pi3), [pixelSplat](https://github.com/dcharatan/pixelsplat).
 
 ## Citation
 
