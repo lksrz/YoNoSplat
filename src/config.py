@@ -94,11 +94,17 @@ def separate_dataset_cfg_wrappers(joined: dict) -> list[DatasetCfgWrapper]:
         try:
             res.append(load_typed_config(DictConfig({"dummy": {k: v}}), Dummy).dummy)
         except Exception as e:
-            print(f"Error loading dataset config for {k}: {e}")
             if k == "shoes":
-                print("Falling back to manual Shoes config...")
                 from src.dataset.dataset_shoes import DatasetShoesCfg, DatasetShoesCfgWrapper
-                shoes_cfg = load_typed_config(DictConfig({"shoes": v}), DatasetShoesCfg, {})
+                
+                # Manually ensure these fields exist in the dict for dacite
+                for field in ["original_image_shape", "input_image_shape", "background_color", 
+                            "cameras_are_circular", "overfit_to_scene", "make_baseline_1", 
+                            "relative_pose", "augment", "skip_bad_shape"]:
+                    if field not in v:
+                        v[field] = None # Or appropriate default
+                
+                shoes_cfg = from_dict(DatasetShoesCfg, OmegaConf.to_container(DictConfig(v)), config=Config(type_hooks=TYPE_HOOKS))
                 res.append(DatasetShoesCfgWrapper(shoes_cfg))
             else:
                 raise e
