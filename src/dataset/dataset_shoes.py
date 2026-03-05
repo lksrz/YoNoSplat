@@ -4,10 +4,12 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import torch
 import torchvision.transforms as tf
 from PIL import Image
 from torch.utils.data import Dataset
+from .norm_scale import compute_pose_norm_scale
 import numpy as np
 
 from .dataset import DatasetCfgCommon
@@ -82,18 +84,29 @@ class DatasetShoes(Dataset):
 
         img_tensor = self.to_tensor(image)
 
-        # Transform matrix is camera-to-world → invert to world-to-camera
+        # Extrinsics: YoNoSplat/pixelSplat convention = camera-to-world (c2w)
+        # OpenCV-style: +X right, +Y down, +Z forward
         c2w = torch.tensor(entry['transform_matrix'], dtype=torch.float32)
-        w2c = torch.inverse(c2w)
+        # Ensure 4x4 matrix
+        if c2w.shape == (3, 4):
+            bottom = torch.tensor([[0, 0, 0, 1]], dtype=torch.float32)
+            c2w = torch.cat([c2w, bottom], dim=0)
+        # Blender convention: +X right, +Y up, +Z backward
+        # Convert to OpenCV: flip Y and Z axes
+        c2w[:3, 1] *= -1  # flip Y
+        c2w[:3, 2] *= -1  # flip Z
 
+        # Intrinsics: NORMALIZED (fx/width, fy/height, cx/width, cy/height)
+        # pixelSplat convention: row 0 divided by image width, row 1 by height
         k = entry['intrinsics']
+        img_w, img_h = image.size  # after resize
         intr = torch.tensor([
-            [k['fx'], 0, k['cx']],
-            [0, k['fy'], k['cy']],
+            [k['fx'] / img_w, 0, k['cx'] / img_w],
+            [0, k['fy'] / img_h, k['cy'] / img_h],
             [0, 0, 1]
         ], dtype=torch.float32)
 
-        return img_tensor, w2c, intr
+        return img_tensor, c2w, intr
 
     def __getitem__(self, index):
         # MixedBatchSampler yields (idx, num_context_views) tuples
@@ -132,10 +145,24 @@ class DatasetShoes(Dataset):
             tgt_ext.append(ext)
             tgt_intr.append(intr)
 
+        # Pose normalization (max pairwise distance) — critical per paper
+        context_extrinsics = torch.stack(ctx_ext)
+        target_extrinsics = torch.stack(tgt_ext)
+        all_extrinsics = torch.cat([context_extrinsics, target_extrinsics], dim=0)
+        
+        scale = compute_pose_norm_scale(context_extrinsics, "max_pairwise_d")
+        if isinstance(scale, (int, float)):
+            scale = max(scale, 1e-6)  # avoid division by zero
+        else:
+            scale = torch.clamp(scale, min=1e-6)
+        
+        context_extrinsics[:, :3, 3] /= scale
+        target_extrinsics[:, :3, 3] /= scale
+
         return {
             "context": {
                 "image": torch.stack(ctx_imgs),
-                "extrinsics": torch.stack(ctx_ext),
+                "extrinsics": context_extrinsics,
                 "intrinsics": torch.stack(ctx_intr),
                 "index": torch.tensor(context_indices, dtype=torch.long),
                 "near": torch.tensor([0.1] * num_context),
@@ -143,7 +170,7 @@ class DatasetShoes(Dataset):
             },
             "target": {
                 "image": torch.stack(tgt_imgs),
-                "extrinsics": torch.stack(tgt_ext),
+                "extrinsics": target_extrinsics,
                 "intrinsics": torch.stack(tgt_intr),
                 "index": torch.tensor(target_indices, dtype=torch.long),
                 "near": torch.tensor([0.1] * num_target),
