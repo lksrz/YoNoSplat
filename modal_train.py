@@ -82,7 +82,7 @@ def train(
     num_target_views: int = 1,
     resume_from: str = None,
     wandb_key: str = None,
-    finetune: str = "re10k",  # "re10k", "dl3dv", "pi3", or "none"
+    finetune: str = "dl3dv",  # "re10k", "dl3dv", "pi3", or "none"
     lr: float = None,  # learning rate (default: 1e-5 for finetune, 1e-4 for scratch)
 ):
     import subprocess
@@ -230,7 +230,7 @@ def main(
     resume_from: str = None,
     wandb_key: str = None,
     check_only: bool = False,
-    finetune: str = "re10k",
+    finetune: str = "dl3dv",
     lr: float = None,
 ):
     if check_only:
