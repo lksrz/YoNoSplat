@@ -113,11 +113,13 @@ class DatasetShoes(Dataset):
                 "image": torch.stack(images[:self.view_sampler.cfg.num_context_views]),
                 "extrinsics": torch.stack(extrinsics[:self.view_sampler.cfg.num_context_views]),
                 "intrinsics": torch.stack(intrinsics[:self.view_sampler.cfg.num_context_views]),
+                "index": torch.arange(self.view_sampler.cfg.num_context_views),
             },
             "target": {
                 "image": torch.stack(images[self.view_sampler.cfg.num_context_views:]),
                 "extrinsics": torch.stack(extrinsics[self.view_sampler.cfg.num_context_views:]),
                 "intrinsics": torch.stack(intrinsics[self.view_sampler.cfg.num_context_views:]),
+                "index": torch.arange(self.view_sampler.cfg.num_context_views, num_available),
             },
             "scene": shoe_dir.name
         }
