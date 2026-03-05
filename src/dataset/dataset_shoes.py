@@ -30,6 +30,7 @@ class DatasetShoesCfg(DatasetCfgCommon):
     augment: bool
     skip_bad_shape: bool
     pose_norm_method: str = "max_pairwise_d"
+    val_fraction: float = 0.1
 
 @dataclass
 class DatasetShoesCfgWrapper:
@@ -69,6 +70,21 @@ class DatasetShoes(Dataset):
         if skipped:
             logger.info(f"Skipped {skipped} incomplete shoes (no poses.json)")
         logger.info(f"Found {len(self.shoe_dirs)} complete shoes in {cfg.roots}")
+
+        # Deterministic train/val split — sort globally, last val_fraction% = val
+        self.shoe_dirs = sorted(self.shoe_dirs)
+        n_total = len(self.shoe_dirs)
+        n_val = max(1, int(round(n_total * cfg.val_fraction)))
+        n_train = n_total - n_val
+        if stage == "val":
+            self.shoe_dirs = self.shoe_dirs[n_train:]
+        elif stage == "train":
+            self.shoe_dirs = self.shoe_dirs[:n_train]
+        # "test" keeps all dirs unchanged
+        logger.info(
+            f"Stage={stage}: using {len(self.shoe_dirs)}/{n_total} shoes "
+            f"(val_fraction={cfg.val_fraction})"
+        )
 
     def __len__(self):
         return len(self.shoe_dirs)
