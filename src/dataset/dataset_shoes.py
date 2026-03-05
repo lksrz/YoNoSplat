@@ -90,6 +90,12 @@ class DatasetShoes(Dataset):
         return img_tensor, w2c, intr
 
     def __getitem__(self, index):
+        # MixedBatchSampler yields (idx, num_context_views) tuples
+        if isinstance(index, (tuple, list)):
+            index, num_context = index
+        else:
+            num_context = self.view_sampler.cfg.num_context_views
+
         shoe_dir = self.shoe_dirs[index]
         poses_path = shoe_dir / "poses.json"
 
@@ -97,7 +103,6 @@ class DatasetShoes(Dataset):
             poses_data = json.load(f)
 
         num_available = len(poses_data)
-        num_context = self.view_sampler.cfg.num_context_views
         num_target = self.view_sampler.cfg.num_target_views
 
         # Randomly sample context + target indices (no overlap)
