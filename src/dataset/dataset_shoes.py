@@ -20,6 +20,11 @@ logger = logging.getLogger(__name__)
 class DatasetShoesCfg(DatasetCfgCommon):
     name: str
     roots: list[Path]
+    make_baseline_1: bool
+    relative_pose: bool
+    augment: bool
+    skip_bad_shape: bool
+    pose_norm_method: str = "max_pairwise_d"
 
 @dataclass
 class DatasetShoesCfgWrapper:
