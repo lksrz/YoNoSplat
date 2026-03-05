@@ -16,8 +16,8 @@ dataset:
   shoes:
     name: shoes
     roots: [/mnt/c/Users/lukas/shoe_renders_final]
-    original_image_shape: [518, 518]
-    input_image_shape: [518, 518]
+    original_image_shape: [224, 224]
+    input_image_shape: [224, 224]
     background_color: [0.0, 0.0, 0.0]
     cameras_are_circular: false
     overfit_to_scene: null

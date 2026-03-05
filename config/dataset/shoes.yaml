@@ -5,7 +5,7 @@ defaults:
 name: shoes
 roots: [/mnt/c/Users/lukas/shoe_renders_final]
 
-input_image_shape: [512, 512]
+input_image_shape: [224, 224]
 original_image_shape: [512, 512]
 cameras_are_circular: false
 
