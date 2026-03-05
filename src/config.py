@@ -39,7 +39,7 @@ class TrainerCfg:
 class RootCfg:
     wandb: dict
     mode: Literal["train", "test"]
-    dataset: list[DatasetCfgWrapper]
+    dataset: list[Any]
     data_loader: DataLoaderCfg
     model: ModelCfg
     optimizer: OptimizerCfg
@@ -106,9 +106,10 @@ def separate_dataset_cfg_wrappers(joined: dict) -> list[DatasetCfgWrapper]:
 
 
 def load_typed_root_config(cfg: DictConfig) -> RootCfg:
+    from typing import Any
     return load_typed_config(
         cfg,
         RootCfg,
-        {list[LossCfgWrapper]: separate_loss_cfg_wrappers,
-         list[DatasetCfgWrapper]: separate_dataset_cfg_wrappers},
+        {list[Any]: separate_dataset_cfg_wrappers,
+         list[LossCfgWrapper]: separate_loss_cfg_wrappers},
     )
