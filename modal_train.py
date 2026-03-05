@@ -15,21 +15,22 @@ import os
 # --- Image with all dependencies baked in ---
 yonosplat_image = (
     modal.Image.from_registry(
-        "pytorch/pytorch:2.1.2-cuda11.8-cudnn8-devel",
+        "pytorch/pytorch:2.4.0-cuda12.1-cudnn9-devel",
         add_python="3.10",
     )
+    .env({"TORCH_CUDA_ARCH_LIST": "8.0"})
     .env({
         "DEBIAN_FRONTEND": "noninteractive",
-        "TORCH_CUDA_ARCH_LIST": "8.0",  # A100
+        "TORCH_CUDA_ARCH_LIST": "8.0",
     })
-    .apt_install("git", "ninja-build", "wget")
+    .apt_install("git", "ninja-build", "wget", "libgl1-mesa-glx", "libglib2.0-0")
     .run_commands(
         "python -m pip install --upgrade pip",
         # Core deps (torch already in base image)
         "python -m pip install 'numpy<2.0' wheel tqdm hydra-core jaxtyping beartype "
         "wandb einops colorama scikit-image colorspacious matplotlib 'moviepy==1.0.3' "
         "imageio timm dacite lpips plyfile tabulate 'svg.py' scikit-video opencv-python",
-        "python -m pip install torchmetrics==1.2.1 pytorch-lightning==2.1.2 lightning-utilities==0.10.0",
+        "python -m pip install torchmetrics==1.2.1 pytorch-lightning==2.1.2 lightning==2.1.2 lightning-utilities==0.10.0",
         "python -m pip install e3nn==0.5.1",
     )
     # Clone and install the custom rasterizer
@@ -37,6 +38,7 @@ yonosplat_image = (
         "git clone https://github.com/rmurai0610/diff-gaussian-rasterization-w-pose.git /tmp/rasterizer",
         "cd /tmp/rasterizer && git submodule update --init --recursive",
         "pip install /tmp/rasterizer --no-build-isolation",
+        "pip install gsplat",
         gpu="A100",  # Need GPU to compile CUDA kernels
     )
     # Clone YoNoSplat repo
@@ -61,7 +63,7 @@ weights_vol = modal.Volume.from_name("yonosplat-weights", create_if_missing=True
         "/pretrained_weights": weights_vol,
     },
     timeout=86400,  # 24h max
-    _allow_background_volume_commits=True,
+
 )
 def train(
     max_steps: int = 50000,
@@ -76,7 +78,7 @@ def train(
     import torch
 
     print(f"CUDA: {torch.cuda.is_available()}, Device: {torch.cuda.get_device_name(0)}")
-    print(f"VRAM: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
+    print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
     # Pull latest code
     subprocess.run(
@@ -130,6 +132,7 @@ def train(
     env = os.environ.copy()
     env["PYTHONPATH"] = "/opt/YoNoSplat"
     env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONWARNINGS"] = "ignore::FutureWarning,ignore::UserWarning"
 
     # Symlink checkpoint output dir to persistent volume
     ckpt_link = "/opt/YoNoSplat/outputs"
