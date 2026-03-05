@@ -6,6 +6,7 @@ from .dataset_scannet_pose import DatasetScannetPose, DatasetScannetPoseCfgWrapp
 from ..misc.step_tracker import StepTracker
 from .dataset_re10k import DatasetRE10k, DatasetRE10kCfg, DatasetRE10kCfgWrapper, DatasetDL3DVCfgWrapper, \
     DatasetScannetppCfgWrapper
+from .dataset_shoes import DatasetShoes, DatasetShoesCfg, DatasetShoesCfgWrapper
 from .types import Stage
 from .view_sampler import get_view_sampler
 
@@ -14,6 +15,7 @@ DATASETS: dict[str, Dataset] = {
     "dl3dv": DatasetRE10k,
     "scannetpp": DatasetRE10k,
     "scannet_pose": DatasetScannetPose,
+    "shoes": DatasetShoes,
 }
 
 
@@ -22,6 +24,7 @@ DatasetCfgWrapper = (
     | DatasetDL3DVCfgWrapper
     | DatasetScannetppCfgWrapper
     | DatasetScannetPoseCfgWrapper
+    | DatasetShoesCfgWrapper
 )
 DatasetCfg = DatasetRE10kCfg
 
