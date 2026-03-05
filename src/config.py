@@ -96,15 +96,23 @@ def separate_dataset_cfg_wrappers(joined: dict) -> list[DatasetCfgWrapper]:
         except Exception as e:
             if k == "shoes":
                 from src.dataset.dataset_shoes import DatasetShoesCfg, DatasetShoesCfgWrapper
+                from src.dataset.view_sampler.view_sampler_bounded import ViewSamplerBoundedCfg
                 
+                v_copy = OmegaConf.to_container(DictConfig(v))
+                # Handle view_sampler separately
+                vs_dict = v_copy.pop("view_sampler")
+                vs_cfg = from_dict(ViewSamplerBoundedCfg, vs_dict, config=Config(type_hooks=TYPE_HOOKS))
+                
+                # Handle root dataset
                 # Manually ensure these fields exist in the dict for dacite
                 for field in ["original_image_shape", "input_image_shape", "background_color", 
                             "cameras_are_circular", "overfit_to_scene", "make_baseline_1", 
                             "relative_pose", "augment", "skip_bad_shape"]:
-                    if field not in v:
-                        v[field] = None # Or appropriate default
+                    if field not in v_copy:
+                        v_copy[field] = None # Or appropriate default
                 
-                shoes_cfg = from_dict(DatasetShoesCfg, OmegaConf.to_container(DictConfig(v)), config=Config(type_hooks=TYPE_HOOKS))
+                v_copy["view_sampler"] = vs_cfg
+                shoes_cfg = from_dict(DatasetShoesCfg, v_copy, config=Config(type_hooks=TYPE_HOOKS))
                 res.append(DatasetShoesCfgWrapper(shoes_cfg))
             else:
                 raise e
