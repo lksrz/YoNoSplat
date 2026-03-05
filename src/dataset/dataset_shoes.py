@@ -114,12 +114,16 @@ class DatasetShoes(Dataset):
                 "extrinsics": torch.stack(extrinsics[:self.view_sampler.cfg.num_context_views]),
                 "intrinsics": torch.stack(intrinsics[:self.view_sampler.cfg.num_context_views]),
                 "index": torch.arange(self.view_sampler.cfg.num_context_views),
+                "near": torch.tensor([0.1] * self.view_sampler.cfg.num_context_views),
+                "far": torch.tensor([100.0] * self.view_sampler.cfg.num_context_views),
             },
             "target": {
                 "image": torch.stack(images[self.view_sampler.cfg.num_context_views:]),
                 "extrinsics": torch.stack(extrinsics[self.view_sampler.cfg.num_context_views:]),
                 "intrinsics": torch.stack(intrinsics[self.view_sampler.cfg.num_context_views:]),
                 "index": torch.arange(self.view_sampler.cfg.num_context_views, num_available),
+                "near": torch.tensor([0.1] * (num_available - self.view_sampler.cfg.num_context_views)),
+                "far": torch.tensor([100.0] * (num_available - self.view_sampler.cfg.num_context_views)),
             },
             "scene": shoe_dir.name
         }
