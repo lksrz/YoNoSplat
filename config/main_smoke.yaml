@@ -1,0 +1,93 @@
+defaults:
+  - model/encoder: yonosplat
+  - model/decoder: splatting_cuda
+  - loss: [mse]
+  - _self_
+
+wandb:
+  project: yonosplat
+  entity: scene-representation-group
+  name: smoke-test
+  mode: disabled
+
+mode: train
+
+dataset:
+  shoes:
+    name: shoes
+    roots: [/mnt/c/Users/lukas/shoe_renders_final]
+    original_image_shape: [518, 518]
+    input_image_shape: [518, 518]
+    background_color: [0.0, 0.0, 0.0]
+    cameras_are_circular: false
+    overfit_to_scene: null
+    view_sampler:
+      name: bounded
+      num_target_views: 1
+      num_context_views: 2
+      max_img_per_gpu: 8
+
+data_loader:
+  train:
+    num_workers: 4
+    persistent_workers: true
+    batch_size: 1
+    seed: 1234
+  test:
+    num_workers: 0
+    persistent_workers: false
+    batch_size: 1
+    seed: 2345
+  val:
+    num_workers: 0
+    persistent_workers: false
+    batch_size: 1
+    seed: 3456
+
+optimizer:
+  lr: 1.5e-4
+  warm_up_steps: 2000
+  backbone_lr_multiplier: 0.1
+
+checkpointing:
+  load: null
+  every_n_train_steps: 500
+  save_top_k: 3
+  save_weights_only: true
+
+train:
+  depth_mode: null
+  extended_visualization: false
+  print_log_every_n_steps: 10
+  eval_model_every_n_val: 0
+  eval_data_length: 2000
+  eval_time_skip_steps: 3
+  train_ignore_large_loss: 0.2
+  train_ignore_large_loss_after_steps: 2000
+  train_ignore_large_loss_mse: 0.06
+  train_ignore_large_loss_pose: 1.0
+
+test:
+  output_path: outputs/test
+  align_pose: true
+  pose_align_steps: 100
+  rot_opt_lr:  0.005
+  trans_opt_lr:  0.005
+  compute_scores: true
+  save_image: true
+  save_video: false
+  save_compare: false
+  post_opt_gs: false
+  post_opt_gs_iter: 200
+  save_context: false
+  save_debug_info: false
+  render_chunk_size: 1000
+
+seed: 111123
+
+trainer:
+  max_steps: 50000
+  val_check_interval: 500
+  gradient_clip_val: 0.5
+  num_nodes: 1
+  log_every_n_steps: 1

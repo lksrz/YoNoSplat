@@ -95,15 +95,14 @@ def train(cfg_dict: DictConfig):
     else:
         pl_logger = LocalLogger()
 
-    # Set up checkpointing.
+    # Set up checkpointing — no monitor so it saves unconditionally every N steps.
     callbacks.append(
         ModelCheckpoint(
             output_dir / "checkpoints",
             every_n_train_steps=cfg.checkpointing.every_n_train_steps,
             save_top_k=cfg.checkpointing.save_top_k,
             save_weights_only=cfg.checkpointing.save_weights_only,
-            monitor="info/global_step",
-            mode="max",
+            save_last=True,
         )
     )
     callbacks[-1].CHECKPOINT_EQUALS_CHAR = '_'
@@ -128,7 +127,8 @@ def train(cfg_dict: DictConfig):
         callbacks=callbacks,
         val_check_interval=cfg.trainer.val_check_interval,
         check_val_every_n_epoch=None,
-        enable_progress_bar=False,
+        enable_progress_bar=True,
+        log_every_n_steps=cfg_dict.trainer.get("log_every_n_steps", 1),
         gradient_clip_val=cfg.trainer.gradient_clip_val,
         max_steps=cfg.trainer.max_steps,
         inference_mode=False if (cfg.mode == "test" and (cfg.test.align_pose or cfg.test.post_opt_gs)) else True,
