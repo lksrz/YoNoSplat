@@ -95,12 +95,12 @@ def train(cfg_dict: DictConfig):
     else:
         pl_logger = LocalLogger()
 
-    # Set up checkpointing — no monitor so it saves unconditionally every N steps.
+    # Set up checkpointing — save_top_k=-1 keeps all, no monitor needed.
     callbacks.append(
         ModelCheckpoint(
             output_dir / "checkpoints",
             every_n_train_steps=cfg.checkpointing.every_n_train_steps,
-            save_top_k=cfg.checkpointing.save_top_k,
+            save_top_k=-1,
             save_weights_only=cfg.checkpointing.save_weights_only,
             save_last=True,
         )
