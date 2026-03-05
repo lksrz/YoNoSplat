@@ -41,9 +41,18 @@ yonosplat_image = (
         "pip install gsplat",
         gpu="A100",  # Need GPU to compile CUDA kernels
     )
-    # Clone YoNoSplat repo
+    # Clone YoNoSplat repo + download pretrained weights
     .run_commands(
         "git clone https://github.com/lksrz/YoNoSplat.git /opt/YoNoSplat",
+        "mkdir -p /opt/YoNoSplat/pretrained_weights",
+        # Pi3 backbone (needed for training from scratch)
+        "wget -q -O /opt/YoNoSplat/pretrained_weights/pi3.safetensors "
+        "https://huggingface.co/yyfz233/Pi3/resolve/main/model.safetensors",
+        # Pretrained YoNoSplat checkpoints (for fine-tuning)
+        "wget -q -O /opt/YoNoSplat/pretrained_weights/re10k.ckpt "
+        "https://huggingface.co/botaoye/YoNoSplat/resolve/main/re10k_224x224_ctx2to32.ckpt",
+        "wget -q -O /opt/YoNoSplat/pretrained_weights/dl3dv.ckpt "
+        "https://huggingface.co/botaoye/YoNoSplat/resolve/main/dl3dv_224x224_ctx2to32.ckpt",
     )
 )
 
@@ -73,6 +82,8 @@ def train(
     num_target_views: int = 1,
     resume_from: str = None,
     wandb_key: str = None,
+    finetune: str = "re10k",  # "re10k", "dl3dv", "pi3", or "none"
+    lr: float = None,  # learning rate (default: 1e-5 for finetune, 1e-4 for scratch)
 ):
     import subprocess
     import torch
@@ -105,6 +116,33 @@ def train(
         os.environ["WANDB_API_KEY"] = wandb_key
         wandb_mode = "online"
 
+    # Setup pretrained weights for fine-tuning
+    weights_dir = "/opt/YoNoSplat/pretrained_weights"
+    finetune_ckpt = None
+    pretrained_backbone = None
+    
+    if finetune in ("re10k", "dl3dv"):
+        finetune_ckpt = os.path.join(weights_dir, f"{finetune}.ckpt")
+        if os.path.exists(finetune_ckpt):
+            print(f"Fine-tuning from pretrained: {finetune_ckpt}")
+        else:
+            print(f"WARNING: {finetune_ckpt} not found, training from scratch")
+            finetune_ckpt = None
+    elif finetune == "pi3":
+        pretrained_backbone = os.path.join(weights_dir, "pi3.safetensors")
+        if os.path.exists(pretrained_backbone):
+            print(f"Using Pi3 backbone: {pretrained_backbone}")
+        else:
+            print(f"WARNING: {pretrained_backbone} not found")
+            pretrained_backbone = None
+    else:
+        print("Training from scratch (no pretrained weights)")
+
+    # Default learning rates
+    if lr is None:
+        lr = 1e-5 if finetune_ckpt else 1e-4
+    print(f"Learning rate: {lr}")
+
     # Build hydra overrides
     overrides = [
         f"dataset.shoes.roots=[{data_root}]",
@@ -113,13 +151,20 @@ def train(
         f"data_loader.train.batch_size={batch_size}",
         f"data_loader.train.num_workers={num_workers}",
         f"trainer.max_steps={max_steps}",
+        f"optimizer.lr={lr}",
         f"wandb.mode={wandb_mode}",
         # Save checkpoints to persistent volume
         "checkpointing.save_weights_only=true",
         "checkpointing.every_n_train_steps=500",
     ]
 
-    if resume_from:
+    # Add pretrained weights config
+    if pretrained_backbone:
+        overrides.append(f"model.encoder.pretrained_weights={pretrained_backbone}")
+    
+    if finetune_ckpt:
+        overrides.append(f"checkpointing.load={finetune_ckpt}")
+    elif resume_from:
         overrides.append(f"checkpointing.load={resume_from}")
 
     cmd = [
@@ -185,6 +230,8 @@ def main(
     resume_from: str = None,
     wandb_key: str = None,
     check_only: bool = False,
+    finetune: str = "re10k",
+    lr: float = None,
 ):
     if check_only:
         result = check_dataset.remote()
@@ -193,7 +240,8 @@ def main(
 
     print(f"Starting YoNoSplat training on Modal A100-80GB")
     print(f"  max_steps={max_steps}, batch_size={batch_size}")
-    print(f"  Resume: {resume_from or 'from scratch'}")
+    print(f"  Fine-tune: {finetune}, LR: {lr or 'auto'}")
+    print(f"  Resume: {resume_from or 'N/A'}")
 
     train.remote(
         max_steps=max_steps,
@@ -201,4 +249,6 @@ def main(
         num_workers=num_workers,
         resume_from=resume_from,
         wandb_key=wandb_key,
+        finetune=finetune,
+        lr=lr,
     )

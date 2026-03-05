@@ -4,8 +4,16 @@ Fork of [cvg/YoNoSplat](https://github.com/cvg/YoNoSplat) for fine-tuning on sho
 
 ## Resources
 - **Original repo:** https://github.com/cvg/YoNoSplat
-- **Paper:** https://arxiv.org/html/2511.07321v1
+- **Paper:** https://arxiv.org/abs/2511.07321 ([HTML](https://arxiv.org/html/2511.07321v1))
 - **Project Page:** https://botaoye.github.io/yonosplat/
+- **Pretrained weights (HuggingFace):** https://huggingface.co/botaoye/YoNoSplat
+- **Pi3 backbone weights:** https://huggingface.co/yyfz233/Pi3/resolve/main/model.safetensors
+
+### Original training details (from paper)
+- Phase 1: 224×224, 16× GH200 GPUs, batch=2, 150k steps (RE10K + DL3DV datasets)
+- Phase 2: 280×518, 32× GH200 GPUs, batch=1, 150k steps (initialized from Phase 1)
+- 2-32 input views per sample, 4 target views
+- Mix-forcing: starts with GT poses, gradually introduces predicted poses
 
 ## Goal
 Fine-tune YoNoSplat (3D Gaussian Splatting from sparse unposed images) on multi-view shoe renders for footwear reconstruction.
