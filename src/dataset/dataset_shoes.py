@@ -30,6 +30,7 @@ class DatasetShoesCfg(DatasetCfgCommon):
     pose_norm_method: str = "max_pairwise_d"
 
 @dataclass
+@dataclass
 class DatasetShoesCfgWrapper:
     shoes: DatasetShoesCfg
 
