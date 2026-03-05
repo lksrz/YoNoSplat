@@ -89,11 +89,20 @@ def separate_dataset_cfg_wrappers(joined: dict) -> list[DatasetCfgWrapper]:
     class Dummy:
         dummy: DatasetCfgWrapper
 
-    print(f"JOINED DATASET KEYS: {joined.keys()}")
-    return [
-        load_typed_config(DictConfig({"dummy": {k: v}}), Dummy).dummy
-        for k, v in joined.items()
-    ]
+    res = []
+    for k, v in joined.items():
+        try:
+            res.append(load_typed_config(DictConfig({"dummy": {k: v}}), Dummy).dummy)
+        except Exception as e:
+            print(f"Error loading dataset config for {k}: {e}")
+            if k == "shoes":
+                print("Falling back to manual Shoes config...")
+                from src.dataset.dataset_shoes import DatasetShoesCfg, DatasetShoesCfgWrapper
+                shoes_cfg = load_typed_config(DictConfig({"shoes": v}), DatasetShoesCfg, {})
+                res.append(DatasetShoesCfgWrapper(shoes_cfg))
+            else:
+                raise e
+    return res
 
 
 def load_typed_root_config(cfg: DictConfig) -> RootCfg:
