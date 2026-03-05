@@ -16,6 +16,9 @@ conda activate yonosplat
 # Set working directory to repo root
 cd "$(dirname "$0")"
 
+# Add current directory to PYTHONPATH so 'src' can be found
+export PYTHONPATH=.
+
 # Run training
 # Overrides:
 # - dataset=shoes
