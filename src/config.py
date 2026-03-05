@@ -89,6 +89,7 @@ def separate_dataset_cfg_wrappers(joined: dict) -> list[DatasetCfgWrapper]:
     class Dummy:
         dummy: DatasetCfgWrapper
 
+    print(f"JOINED DATASET KEYS: {joined.keys()}")
     return [
         load_typed_config(DictConfig({"dummy": {k: v}}), Dummy).dummy
         for k, v in joined.items()
