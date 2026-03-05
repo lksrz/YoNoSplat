@@ -51,16 +51,22 @@ class DatasetShoes(Dataset):
         self.to_tensor = tf.ToTensor()
         self.name = cfg.name
 
-        # Find all shoe directories
+        # Find all shoe directories that have a completed poses.json
         self.shoe_dirs = []
+        skipped = 0
         for root in cfg.roots:
             if not root.exists():
                 logger.warning(f"Root {root} does not exist")
                 continue
-            subdirs = [d for d in root.iterdir() if d.is_dir()]
-            self.shoe_dirs.extend(subdirs)
+            for d in sorted(root.iterdir()):
+                if d.is_dir() and (d / "poses.json").exists():
+                    self.shoe_dirs.append(d)
+                elif d.is_dir():
+                    skipped += 1
         
-        logger.info(f"Found {len(self.shoe_dirs)} shoes in {cfg.roots}")
+        if skipped:
+            logger.info(f"Skipped {skipped} incomplete shoes (no poses.json)")
+        logger.info(f"Found {len(self.shoe_dirs)} complete shoes in {cfg.roots}")
 
     def __len__(self):
         return len(self.shoe_dirs)
