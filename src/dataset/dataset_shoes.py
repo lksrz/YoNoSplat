@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 class DatasetShoesCfg(DatasetCfgCommon):
     name: str
     roots: list[Path]
+    baseline_min: float
+    baseline_max: float
+    max_fov: float
     make_baseline_1: bool
     relative_pose: bool
     augment: bool
