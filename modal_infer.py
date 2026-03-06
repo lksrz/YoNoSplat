@@ -365,7 +365,8 @@ def infer(
             gaussians.harmonics[0],
             gaussians.opacities[0],
             Path(ply_path),
-            shift_and_scale=True
+            shift_and_scale=True,
+            covariances=gaussians.covariances[0],
         )
         saved_paths.append(ply_path)
         print(f"  Saved: {ply_path}")
