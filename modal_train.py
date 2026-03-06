@@ -154,8 +154,8 @@ def train(
         f"optimizer.lr={lr}",
         f"wandb.mode={wandb_mode}",
         # Save checkpoints to persistent volume
-        "checkpointing.save_weights_only=true",
-        "checkpointing.every_n_train_steps=500",
+        "checkpointing.save_weights_only=false",
+        "checkpointing.every_n_train_steps=1000",
     ]
 
     # Add pretrained weights config
