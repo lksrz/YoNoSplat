@@ -58,7 +58,11 @@ def render_cuda(
     use_sh: bool = True,
     cam_rot_delta: Float[Tensor, "batch 3"] | None = None,
     cam_trans_delta: Float[Tensor, "batch 3"] | None = None,
-) -> tuple[Float[Tensor, "batch 3 height width"], Float[Tensor, "batch height width"]]:
+) -> tuple[
+    Float[Tensor, "batch 3 height width"],
+    Float[Tensor, "batch height width"],
+    Float[Tensor, "batch 1 height width"],
+]:
     assert use_sh or gaussian_sh_coefficients.shape[-1] == 1
 
     # Make sure everything is in a range where numerical issues don't appear.
@@ -90,6 +94,7 @@ def render_cuda(
     all_images = []
     all_radii = []
     all_depths = []
+    all_opacities = []
     for i in range(b):
         # Set up a tensor for the gradients of the screen-space means.
         mean_gradients = torch.zeros_like(gaussian_means[i], requires_grad=True)
@@ -130,7 +135,8 @@ def render_cuda(
         all_images.append(image)
         all_radii.append(radii)
         all_depths.append(depth.squeeze(0))
-    return torch.stack(all_images), torch.stack(all_depths)
+        all_opacities.append(opacity)
+    return torch.stack(all_images), torch.stack(all_depths), torch.stack(all_opacities)
 
 
 def render_cuda_orthographic(

@@ -336,6 +336,8 @@ def infer(
 
     # output.color: (1, N, 3, H, W)
     rendered = output.color[0].clamp(0, 1).cpu()  # (N, 3, H, W)
+    if output.alpha is not None:
+        rendered = (rendered + (1.0 - output.alpha[0].clamp(0, 1).cpu())).clamp(0, 1)
 
     # ------------------------------------------------------------------
     # Save renders
@@ -361,18 +363,23 @@ def infer(
         
         ply_path = os.path.join(out_dir, "shoe.ply")
         print(f"Exporting .ply to {ply_path} ...")
-        
-        # gaussians is a dataclass with fields (batch, gaussian, ...)
-        # we take the first item in the batch (b=0)
+        export_threshold = max(float(model.decoder.prune_opacity_threshold), 0.03)
+        export_mask = gaussians.opacities[0] > export_threshold
+        if not export_mask.any():
+            topk = min(4096, gaussians.opacities.shape[1])
+            export_indices = gaussians.opacities[0].topk(topk).indices
+            export_mask = torch.zeros_like(gaussians.opacities[0], dtype=torch.bool)
+            export_mask[export_indices] = True
+
         save_ply(
-            gaussians.means[0],
-            gaussians.scales[0],
-            gaussians.rotations[0],
-            gaussians.harmonics[0],
-            gaussians.opacities[0],
+            gaussians.means[0][export_mask],
+            gaussians.scales[0][export_mask],
+            gaussians.rotations[0][export_mask],
+            gaussians.harmonics[0][export_mask],
+            gaussians.opacities[0][export_mask],
             Path(ply_path),
             shift_and_scale=True,
-            covariances=gaussians.covariances[0],
+            covariances=gaussians.covariances[0][export_mask],
         )
         saved_paths.append(ply_path)
         print(f"  Saved: {ply_path}")

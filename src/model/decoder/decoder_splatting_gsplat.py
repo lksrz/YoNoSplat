@@ -81,7 +81,14 @@ class DecoderSplattingGSPlat(Decoder[DecoderSplattingSplatCfg]):
                                             )  # (V, H, W, 3)
         rendering_img, rendering_depth = torch.split(rendering, [3, 1], dim=-1)
         rendering_img = rendering_img.clamp(0.0, 1.0)
-        return DecoderOutput(rendering_img.permute(0, 1, 4, 2, 3), rendering_depth.squeeze(-1))
+        if alpha.ndim == 4:
+            alpha = alpha.unsqueeze(-1)
+        alpha = alpha.permute(0, 1, 4, 2, 3).clamp(0.0, 1.0)
+        return DecoderOutput(
+            rendering_img.permute(0, 1, 4, 2, 3),
+            rendering_depth.squeeze(-1),
+            alpha,
+        )
 
     def forward(
             self,

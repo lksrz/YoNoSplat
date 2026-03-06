@@ -93,7 +93,7 @@ def build_decoder_cfg() -> DictConfig:
         "name": "splatting_cuda",
         "background_color": [0.0, 0.0, 0.0],
         "make_scale_invariant": True,
-        "prune_opacity_threshold": 0.005,
+        "prune_opacity_threshold": 0.03,
         "training_prune_ratio": 0.0,
         "training_prune_keep_ratio": 0.1,
     })
@@ -161,7 +161,8 @@ def main():
     # ── 5. Export .ply ──────────────────────────────────────────────────────────
     from src.model.ply_export import export_ply
     ply_path = args.output / "gaussians.ply"
-    export_mask = gaussians.opacities.squeeze(0) > 0.01
+    export_threshold = max(float(dec_cfg.prune_opacity_threshold), 0.03)
+    export_mask = gaussians.opacities.squeeze(0) > export_threshold
     if not export_mask.any():
         topk = min(4096, gaussians.opacities.shape[1])
         export_indices = gaussians.opacities.squeeze(0).topk(topk).indices
@@ -196,6 +197,8 @@ def main():
     import torchvision
     for i in range(v):
         img = output.color[0, i].clamp(0, 1)
+        if output.alpha is not None:
+            img = (img + (1.0 - output.alpha[0, i].clamp(0, 1))).clamp(0, 1)
         torchvision.utils.save_image(img, args.output / f"render_{i:02d}.png")
     print(f"✅ Rendered {v} views → {args.output}/render_*.png")
     print("DONE!")

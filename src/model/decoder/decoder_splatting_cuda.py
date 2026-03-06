@@ -51,7 +51,7 @@ class DecoderSplattingCUDA(Decoder[DecoderSplattingCUDACfg]):
     ) -> DecoderOutput:
         b, v, _, _ = extrinsics.shape
         gaussians = prune_gaussians(gaussians, self.cfg.prune_opacity_threshold, self.cfg.training_prune_ratio, self.cfg.training_prune_keep_ratio, inference=not self.training)
-        color, depth = render_cuda(
+        color, depth, alpha = render_cuda(
             rearrange(extrinsics, "b v i j -> (b v) i j"),
             rearrange(intrinsics, "b v i j -> (b v) i j"),
             rearrange(near, "b v -> (b v)"),
@@ -67,6 +67,6 @@ class DecoderSplattingCUDA(Decoder[DecoderSplattingCUDACfg]):
             cam_trans_delta=rearrange(cam_trans_delta, "b v i -> (b v) i") if cam_trans_delta is not None else None,
         )
         color = rearrange(color, "(b v) c h w -> b v c h w", b=b, v=v)
-
         depth = rearrange(depth, "(b v) h w -> b v h w", b=b, v=v)
-        return DecoderOutput(color, depth)
+        alpha = rearrange(alpha, "(b v) c h w -> b v c h w", b=b, v=v).clamp(0.0, 1.0)
+        return DecoderOutput(color, depth, alpha)

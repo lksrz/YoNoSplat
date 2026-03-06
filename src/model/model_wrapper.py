@@ -157,6 +157,34 @@ class ModelWrapper(LightningModule):
 
         self.low_opa_ratio = []
 
+    @staticmethod
+    def _composite_eval_background(
+        color: Tensor,
+        alpha: Tensor | None,
+        views,
+    ) -> Tensor:
+        if alpha is None or "mask" not in views or "foreground" not in views:
+            return color
+
+        alpha = alpha.to(color.device).clamp(0.0, 1.0)
+        mask = views["mask"].to(color.device).clamp(0.0, 1.0)
+        foreground = views["foreground"].to(color.device)
+        image = views["image"].to(color.device)
+
+        denom = (1.0 - mask).clamp_min(1e-6)
+        background = (image - foreground * mask) / denom
+        valid_background = (1.0 - mask) > 1e-3
+        background_color = (
+            (background * valid_background).sum(dim=(-1, -2), keepdim=True)
+            / valid_background.sum(dim=(-1, -2), keepdim=True).clamp_min(1.0)
+        )
+        background = torch.where(
+            valid_background.expand_as(background),
+            background,
+            background_color.expand_as(background),
+        )
+        return color + background * (1.0 - alpha)
+
     def training_step(self, batch, batch_idx):
         # combine batch from different dataloaders
         if isinstance(batch, list):
@@ -193,11 +221,16 @@ class ModelWrapper(LightningModule):
             depth_mode=self.train_cfg.depth_mode,
         )
         target_gt = batch["target"]["image"]
+        target_pred_for_metrics = self._composite_eval_background(
+            output.color,
+            output.alpha,
+            batch["target"],
+        )
 
         # Compute metrics.
         psnr_probabilistic = compute_psnr(
             rearrange(target_gt, "b v c h w -> (b v) c h w"),
-            rearrange(output.color, "b v c h w -> (b v) c h w"),
+            rearrange(target_pred_for_metrics, "b v c h w -> (b v) c h w"),
         )
         self.log("train/psnr_probabilistic", psnr_probabilistic.mean())
 
@@ -236,6 +269,8 @@ class ModelWrapper(LightningModule):
         opcities = gaussians.opacities.flatten()
         ratio_opacity = (opcities < 0.01).float().mean()
         self.log(f"info/ratio_opacity<0.01", ratio_opacity)
+        if output.alpha is not None:
+            self.log("info/render_alpha_mean", output.alpha.mean())
 
         self.log_gaussian_status(batch["context"]["image"], gaussians, visualization_dump)
 
@@ -298,6 +333,7 @@ class ModelWrapper(LightningModule):
             else:
                 output_align_img = []
                 output_align_depth = []
+                output_align_alpha = []
                 batch_chunk = clone_batch(batch)
                 for frames_start_idx in range(0, v_tgt, self.test_cfg.render_chunk_size):
                     frames_end_idx = min(frames_start_idx + self.test_cfg.render_chunk_size, v_tgt)
@@ -311,18 +347,24 @@ class ModelWrapper(LightningModule):
                     output_align_chunk = self.test_step_align(batch_chunk, gaussians, visualization_dump["c2w"])
                     output_align_img.append(output_align_chunk.color)
                     output_align_depth.append(output_align_chunk.depth)
+                    if output_align_chunk.alpha is not None:
+                        output_align_alpha.append(output_align_chunk.alpha)
 
                     # Clear memory
                     torch.cuda.empty_cache()
-                output_align = type(output_align_chunk)  # DecoderOutput
+                output_align = output_align_chunk
                 output_align.color = torch.cat(output_align_img, dim=1)
                 output_align.depth = torch.cat(output_align_depth, dim=1)
+                output_align.alpha = (
+                    torch.cat(output_align_alpha, dim=1) if output_align_alpha else None
+                )
 
             output = output_align
         else:
             # chunk inferencing
             output_img = []
             output_depth = []
+            output_alpha = []
             for frames_start_idx in range(0, v_tgt, self.test_cfg.render_chunk_size):
                 frames_end_idx = min(frames_start_idx + self.test_cfg.render_chunk_size, v_tgt)
                 num_calls = frames_end_idx - frames_start_idx
@@ -338,12 +380,20 @@ class ModelWrapper(LightningModule):
                     )
                 output_img.append(output.color)
                 output_depth.append(output.depth)
+                if output.alpha is not None:
+                    output_alpha.append(output.alpha)
 
                 # Clear memory
                 torch.cuda.empty_cache()
 
             output.color = torch.cat(output_img, dim=1)
             output.depth = torch.cat(output_depth, dim=1)
+            output.alpha = torch.cat(output_alpha, dim=1) if output_alpha else None
+        output_color_eval = self._composite_eval_background(
+            output.color,
+            output.alpha,
+            batch["target"],
+        )
 
         # compute scores
         if self.test_cfg.compute_scores:
@@ -351,7 +401,7 @@ class ModelWrapper(LightningModule):
             # overlap_tag = get_overlap_tag(overlap)
             overlap_tag = None  # disable overlap tag
 
-            rgb_pred = output.color[0]
+            rgb_pred = output_color_eval[0]
             rgb_gt = batch["target"]["image"][0]
             all_metrics = {
                 f"lpips_ours": compute_lpips(rgb_gt, rgb_pred).mean(),
@@ -379,7 +429,7 @@ class ModelWrapper(LightningModule):
         name = get_cfg()["wandb"]["name"]
         path = self.test_cfg.output_path / name
         if self.test_cfg.save_image:
-            for index, color in zip(batch["target"]["index"][0], output.color[0]):
+            for index, color in zip(batch["target"]["index"][0], output_color_eval[0]):
                 save_image(color, path / scene / f"color/{index:0>6}.png")
 
         if self.test_cfg.save_context:
@@ -390,7 +440,7 @@ class ModelWrapper(LightningModule):
             frame_str = "_".join([str(x.item()) for x in batch["context"]["index"][0]])
             frame_str = frame_str[:80]  # avoid too long file name
             save_video(
-                [a for a in output.color[0]],
+                [a for a in output_color_eval[0]],
                 path / "video" / f"{scene}_frame_{frame_str}.mp4",
             )
 
@@ -408,7 +458,7 @@ class ModelWrapper(LightningModule):
             # save Gaussians, point cloud, input images with corresponding predicted depth (both local and global)
             # rnedered images and depth maps
             rgb_gt = batch["target"]["image"][0]
-            rgb_pred = output.color[0]
+            rgb_pred = output_color_eval[0]
 
             save_path = path / scene / f"debug_info"
 
@@ -454,7 +504,8 @@ class ModelWrapper(LightningModule):
             mask[GAUSSIAN_TRIM:-GAUSSIAN_TRIM, GAUSSIAN_TRIM:-GAUSSIAN_TRIM, :, :] = 1
 
             # filter out Gaussians with too low opacity
-            mask = mask & (opacities > 0.01)
+            export_threshold = max(float(self.decoder.prune_opacity_threshold), 0.03)
+            mask = mask & (opacities > export_threshold)
 
             def trim(element):
                 element = rearrange(
@@ -693,7 +744,11 @@ class ModelWrapper(LightningModule):
             (h, w),
             "depth",
         )
-        rgb_pred = output.color[0]
+        rgb_pred = self._composite_eval_background(
+            output.color,
+            output.alpha,
+            batch["target"],
+        )[0]
         depth_pred = vis_depth_map(output.depth[0])
 
         # direct depth from gaussian means (used for visualization only)
@@ -709,6 +764,13 @@ class ModelWrapper(LightningModule):
         self.log(f"val/lpips", lpips)
         ssim = compute_ssim(rgb_gt, rgb_pred).mean()
         self.log(f"val/ssim", ssim)
+        if output.alpha is not None:
+            pred_alpha = output.alpha[0]
+            gt_alpha = batch["target"]["mask"][0] if "mask" in batch["target"] else None
+            self.log("val/alpha_mean", pred_alpha.mean())
+        else:
+            pred_alpha = None
+            gt_alpha = None
 
         # Construct comparison image.
         context_img = batch["context"]["image"][0]
@@ -717,12 +779,27 @@ class ModelWrapper(LightningModule):
         for i in range(context_img.shape[0]):
             context.append(context_img[i])
             context.append(context_img_depth[i])
-        comparison = hcat(
+        comparison_panels = [
             add_label(vcat(*context), "Context"),
             add_label(vcat(*rgb_gt), "Target (Ground Truth)"),
             add_label(vcat(*rgb_pred), "Target (Prediction)"),
             add_label(vcat(*depth_pred), "Depth (Prediction)"),
-        )
+        ]
+        if pred_alpha is not None:
+            comparison_panels.append(
+                add_label(
+                    vcat(*repeat(pred_alpha, "v 1 h w -> v 3 h w")),
+                    "Alpha (Prediction)",
+                )
+            )
+        if gt_alpha is not None:
+            comparison_panels.append(
+                add_label(
+                    vcat(*repeat(gt_alpha, "v 1 h w -> v 3 h w")),
+                    "Mask (Ground Truth)",
+                )
+            )
+        comparison = hcat(*comparison_panels)
 
         self.logger.log_image(
             "comparison",

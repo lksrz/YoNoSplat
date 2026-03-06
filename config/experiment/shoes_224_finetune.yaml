@@ -4,7 +4,7 @@ defaults:
   - /dataset@_group_.shoes: shoes
   - override /model/encoder: yonosplat
   - override /model/encoder/backbone: local_global
-  - override /loss: [mse, lpips, opacity, intrinsic, pose]
+  - override /loss: [mse, lpips, silhouette, opacity, intrinsic, pose]
 
 wandb:
   name: shoes_224_finetune
@@ -22,6 +22,7 @@ model:
       predict_intrinsics: true
   decoder:
     make_scale_invariant: true
+    prune_opacity_threshold: 0.03
 
 dataset:
   shoes:
@@ -70,3 +71,9 @@ train:
 checkpointing:
   every_n_train_steps: 500
   save_weights_only: false
+
+loss:
+  silhouette:
+    weight: 0.1
+  opacity:
+    weight: 0.05

@@ -6,6 +6,7 @@ from .loss_mse import LossMse, LossMseCfgWrapper
 from .loss_opacity import LossOpacity, LossOpacityCfgWrapper
 from .loss_perceptual import LossPerceptual, LossPerceptualCfgWrapper
 from .loss_pose_cfg import LossPose, LossPoseCfgWrapper
+from .loss_silhouette import LossSilhouette, LossSilhouetteCfgWrapper
 
 LOSSES = {
     LossDepthCfgWrapper: LossDepth,
@@ -15,6 +16,7 @@ LOSSES = {
     LossOpacityCfgWrapper: LossOpacity,
     LossPerceptualCfgWrapper: LossPerceptual,
     LossPoseCfgWrapper: LossPose,
+    LossSilhouetteCfgWrapper: LossSilhouette,
 }
 
 LossCfgWrapper = (
@@ -25,6 +27,7 @@ LossCfgWrapper = (
     | LossOpacityCfgWrapper
     | LossPerceptualCfgWrapper
     | LossPoseCfgWrapper
+    | LossSilhouetteCfgWrapper
 )
 
 
