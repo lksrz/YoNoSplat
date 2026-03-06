@@ -86,8 +86,10 @@ def apply_crop_shim_to_views(views: AnyViews, shape: tuple[int, int]) -> AnyView
         foreground, _ = rescale_and_crop(views["foreground"], views["intrinsics"], shape)
         result["foreground"] = foreground
     if "mask" in views:
-        masks, _ = rescale_and_crop(views["mask"], views["intrinsics"], shape)
-        result["mask"] = masks
+        # mask is [*batch, 1, H, W] — expand to 3 channels for rescale, then take back 1
+        masks_3ch = views["mask"].expand(*views["mask"].shape[:-3], 3, *views["mask"].shape[-2:]).contiguous()
+        masks_3ch, _ = rescale_and_crop(masks_3ch, views["intrinsics"], shape)
+        result["mask"] = masks_3ch[..., :1, :, :]
     return result
 
 
