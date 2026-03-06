@@ -85,13 +85,13 @@ class EncoderVisualizerEpipolar(
             name = wandb.run._name.split(" ")[0]
             ply_path = Path(f"outputs/gaussians/{name}/{global_step:0>6}.ply")
             export_ply(
-                context["extrinsics"][0, 0],
                 result.means[0],
                 visualization_dump["scales"][0],
                 visualization_dump["rotations"][0],
                 result.harmonics[0],
                 result.opacities[0],
                 ply_path,
+                covariances=result.covariances[0],
             )
 
         return {

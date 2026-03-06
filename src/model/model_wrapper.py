@@ -471,6 +471,7 @@ class ModelWrapper(LightningModule):
                 trim(gaussians.opacities)[0],
                 output_Gaussian_path,
                 save_sh_dc_only=True,
+                covariances=trim(gaussians.covariances)[0],
             )
 
             # save point cloud

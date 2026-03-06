@@ -23,6 +23,27 @@ def construct_list_of_attributes(num_rest: int) -> list[str]:
     return attributes
 
 
+def covariance_to_scaling_rotation(
+    covariances: Float[Tensor, "gaussian 3 3"],
+) -> tuple[
+    Float[Tensor, "gaussian 3"],
+    Float[Tensor, "gaussian 4"],
+]:
+    eigvals, eigvecs = torch.linalg.eigh(covariances.detach().cpu())
+    order = torch.argsort(eigvals, dim=-1, descending=True)
+    eigvals = torch.gather(eigvals, -1, order)
+    eigvecs = torch.gather(eigvecs, -1, order.unsqueeze(-2).expand(-1, 3, 3))
+
+    det = torch.det(eigvecs)
+    eigvecs[det < 0, :, -1] *= -1
+
+    scales = eigvals.clamp_min(1e-12).sqrt()
+    rotations = torch.from_numpy(R.from_matrix(eigvecs.numpy()).as_quat()).to(
+        dtype=covariances.dtype
+    )
+    return scales, rotations
+
+
 def export_ply(
     means: Float[Tensor, "gaussian 3"],
     scales: Float[Tensor, "gaussian 3"],
@@ -32,7 +53,11 @@ def export_ply(
     path: Path,
     shift_and_scale: bool = False,
     save_sh_dc_only: bool = True,
+    covariances: Float[Tensor, "gaussian 3 3"] | None = None,
 ):
+    if covariances is not None:
+        scales, rotations = covariance_to_scaling_rotation(covariances)
+
     if shift_and_scale:
         # Shift the scene so that the median Gaussian is at the origin.
         means = means - means.median(dim=0).values
@@ -60,7 +85,7 @@ def export_ply(
         torch.zeros_like(means).detach().cpu().numpy(),
         f_dc.detach().cpu().contiguous().numpy(),
         f_rest.detach().cpu().contiguous().numpy(),
-        opacities[..., None].detach().cpu().numpy(),
+        torch.logit(opacities.clamp(1e-6, 1 - 1e-6))[..., None].detach().cpu().numpy(),
         scales.log().detach().cpu().numpy(),
         rotations,
     ]

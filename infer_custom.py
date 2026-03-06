@@ -161,15 +161,22 @@ def main():
     # ── 5. Export .ply ──────────────────────────────────────────────────────────
     from src.model.ply_export import export_ply
     ply_path = args.output / "gaussians.ply"
+    export_mask = gaussians.opacities.squeeze(0) > 0.01
+    if not export_mask.any():
+        topk = min(4096, gaussians.opacities.shape[1])
+        export_indices = gaussians.opacities.squeeze(0).topk(topk).indices
+        export_mask = torch.zeros_like(gaussians.opacities.squeeze(0), dtype=torch.bool)
+        export_mask[export_indices] = True
     export_ply(
-        gaussians.means.squeeze(0),
-        gaussians.scales.squeeze(0),
-        gaussians.rotations.squeeze(0),
-        gaussians.harmonics.squeeze(0),
-        gaussians.opacities.squeeze(0),
+        gaussians.means.squeeze(0)[export_mask],
+        gaussians.scales.squeeze(0)[export_mask],
+        gaussians.rotations.squeeze(0)[export_mask],
+        gaussians.harmonics.squeeze(0)[export_mask],
+        gaussians.opacities.squeeze(0)[export_mask],
         path=ply_path,
         shift_and_scale=True,
         save_sh_dc_only=True,
+        covariances=gaussians.covariances.squeeze(0)[export_mask],
     )
     print(f"✅ Saved: {ply_path}")
 
