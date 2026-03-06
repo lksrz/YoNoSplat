@@ -21,6 +21,7 @@ class ViewSamplerAll(ViewSampler[ViewSamplerAllCfg]):
         extrinsics: Float[Tensor, "view 4 4"],
         intrinsics: Float[Tensor, "view 3 3"],
         device: torch.device = torch.device("cpu"),
+        num_context_views: int | None = None,
     ) -> tuple[
         Int64[Tensor, " context_view"],  # indices for context views
         Int64[Tensor, " target_view"],  # indices for target views

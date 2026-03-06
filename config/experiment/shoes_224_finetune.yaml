@@ -1,0 +1,72 @@
+# @package _global_
+
+defaults:
+  - /dataset@_group_.shoes: shoes
+  - override /model/encoder: yonosplat
+  - override /model/encoder/backbone: local_global
+  - override /loss: [mse, lpips, opacity, intrinsic, pose]
+
+wandb:
+  name: shoes_224_finetune
+  tags: [shoes, 224x224]
+
+model:
+  encoder:
+    name: yonosplat
+    pose_free: true
+    pretrained_weights: ""
+    gt_pose_sampling_decay_start_step: 5000
+    gt_pose_sampling_decay_end_step: 15000
+    gt_pose_final_sample_ratio: 0.9
+    backbone:
+      predict_intrinsics: true
+  decoder:
+    make_scale_invariant: true
+
+dataset:
+  shoes:
+    input_image_shape: [224, 224]
+    original_image_shape: [512, 512]
+    pose_norm_method: max_pairwise_d
+    val_fraction: 0.05
+    view_sampler:
+      num_context_views: 2
+      num_target_views: 1
+      min_context_angle_deg: 20.0
+      max_context_angle_deg: 60.0
+      fallback_min_context_angle_deg: 10.0
+      fallback_max_context_angle_deg: 90.0
+      min_target_angle_deg: 5.0
+      max_target_angle_deg: 25.0
+      max_img_per_gpu: 8
+
+optimizer:
+  lr: 1e-5
+  warm_up_steps: 1000
+  backbone_lr_multiplier: 0.1
+
+data_loader:
+  train:
+    num_workers: 4
+    persistent_workers: true
+  val:
+    num_workers: 0
+    persistent_workers: false
+  test:
+    num_workers: 0
+    persistent_workers: false
+
+trainer:
+  max_steps: 50000
+  val_check_interval: 5000
+
+train:
+  print_log_every_n_steps: 10
+  eval_model_every_n_val: 0
+  eval_data_length: 200
+  eval_time_skip_steps: 3
+  train_ignore_large_loss_after_steps: 2000
+
+checkpointing:
+  every_n_train_steps: 500
+  save_weights_only: false

@@ -1,0 +1,12 @@
+name: shoes_geometry
+
+num_target_views: 1
+num_context_views: 2
+
+min_context_angle_deg: 20.0
+max_context_angle_deg: 60.0
+fallback_min_context_angle_deg: 10.0
+fallback_max_context_angle_deg: 90.0
+min_target_angle_deg: 5.0
+max_target_angle_deg: 25.0
+max_img_per_gpu: 8

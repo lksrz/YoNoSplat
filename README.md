@@ -53,14 +53,14 @@ modal volume ls yonosplat-dataset /
 
 ### Run training
 ```bash
-# Full training (A100-80GB, batch=4, 50k steps)
-MODAL_PROFILE=wearfits modal run modal_train.py --batch-size 4 --max-steps 50000
+# Full training (A100-80GB, 224px shoe fine-tune, exact-resume checkpoints)
+MODAL_PROFILE=wearfits modal run modal_train.py --experiment shoes_224_finetune --batch-size 4 --max-steps 50000
 
 # Check dataset only
 MODAL_PROFILE=wearfits modal run modal_train.py --check-only
 
-# Resume from checkpoint
-MODAL_PROFILE=wearfits modal run modal_train.py --batch-size 4 --resume-from /checkpoints/outputs/last.ckpt
+# Resume exactly from a Lightning checkpoint
+MODAL_PROFILE=wearfits modal run modal_train.py --experiment shoes_224_finetune --batch-size 4 --resume-from /checkpoints/outputs/last.ckpt
 ```
 
 ### Download checkpoints
@@ -137,16 +137,20 @@ shoe_renders_final/
 ```bash
 cd /home/lukas/YoNoSplat
 conda activate yonosplat
-PYTHONPATH=/home/lukas/YoNoSplat python3 -u src/main.py --config-name main_smoke
+./train_local.sh
 ```
 
-### Config: `config/main_smoke.yaml`
-- `batch_size: 1` (VRAM constraint on 16GB)
+### Config: `config/experiment/shoes_224_finetune.yaml`
+- `224x224` fine-tune recipe for the custom shoe dataset
 - `num_context_views: 2`, `num_target_views: 1`
-- `input_image_shape: [518, 518]` (DINOv2 patch_size=14 requirement)
+- `input_image_shape: [224, 224]`
 - `max_steps: 50000`
 - `checkpointing.every_n_train_steps: 500`
-- `wandb.mode: disabled`
+- `checkpointing.save_weights_only: false` for exact resume
+- `wandb.mode: disabled` by default unless a key is passed
+
+### Local VRAM note
+- `train_local.sh` uses `dataset.shoes.view_sampler.max_img_per_gpu=2` so a 16GB GPU stays at batch size 1 with two context views
 
 ### WSL env setup
 ```bash
@@ -175,8 +179,9 @@ python -c "import diff_gaussian_rasterization as dgr; print('ok')"
 
 - **OOM on 16GB**: Sample only `num_target_views` (1) instead of all remaining views
 - **MixedBatchSampler**: `__getitem__` must handle `(idx, num_context)` tuples
-- **DINOv2 patch_size=14**: Images must be divisible by 14 → resize 512→518 in loader
+- **Camera geometry for shoes**: Normalize intrinsics in source-image coordinates, then apply the shared crop/resize shim
+- **Geometry-aware sampling**: Shoes use pose-based context/target sampling instead of index-gap video sampling
 - **Incomplete renders crash**: Dataset loader now checks `poses.json` exists before including a shoe
-- **ModelCheckpoint**: Use `save_top_k=-1` (keep all) when `monitor=None`
+- **Exact resume**: Save full Lightning checkpoints so `--resume-from /checkpoints/outputs/last.ckpt` continues optimizer state and global step
 - **PyTorch version**: Code requires ≥2.2 (`torch.nn.attention.SDPBackend`)
 - **tee kills progress bar**: Use `script -c '...' logfile` instead of `| tee` to preserve TTY

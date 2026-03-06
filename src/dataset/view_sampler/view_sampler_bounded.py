@@ -13,12 +13,12 @@ class ViewSamplerBoundedCfg:
     name: Literal["bounded"]
     num_context_views: int | list[int]
     num_target_views: int
-    min_distance_between_context_views: int
-    max_distance_between_context_views: int
-    min_distance_to_context_views: int
-    warm_up_steps: int
-    initial_min_distance_between_context_views: int
-    initial_max_distance_between_context_views: int
+    min_distance_between_context_views: int = 2
+    max_distance_between_context_views: int = 6
+    min_distance_to_context_views: int = 0
+    warm_up_steps: int = 0
+    initial_min_distance_between_context_views: int = 2
+    initial_max_distance_between_context_views: int = 6
     permute_context_views: Optional[bool] = False
     max_img_per_gpu: int = 48
 

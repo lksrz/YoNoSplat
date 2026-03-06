@@ -19,17 +19,12 @@ cd "$(dirname "$0")"
 # Add current directory to PYTHONPATH so 'src' can be found
 export PYTHONPATH=.
 
-# Run training
-# Overrides:
-# - dataset=shoes
-# - trainer.devices=1 (use single GPU)
-# - train.batch_size=1 (adjust based on VRAM)
-# - mode=train
-
-python src/main.py \
-    dataset=shoes \
-    trainer.devices=1 \
-    train.batch_size=1 \
-    mode=train \
-    dataset.roots=["/mnt/c/Users/lukas/shoe_renders_final"] \
+# Run the same experiment recipe as Modal.
+# With 2 context views, max_img_per_gpu=2 keeps the mixed sampler at batch size 1.
+python -m src.main \
+    +experiment=shoes_224_finetune \
+    dataset.shoes.roots='["/mnt/c/Users/lukas/shoe_renders_final"]' \
+    dataset.shoes.view_sampler.max_img_per_gpu=2 \
+    data_loader.train.num_workers=2 \
+    checkpointing.save_weights_only=false \
     $@

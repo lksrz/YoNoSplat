@@ -1,6 +1,6 @@
 defaults:
   - base_dataset
-  - view_sampler: bounded
+  - view_sampler: shoes_geometry
 
 name: shoes
 roots: [/mnt/c/Users/lukas/shoe_renders_final]
@@ -11,5 +11,5 @@ cameras_are_circular: false
 
 view_sampler:
   num_context_views: 2
-  num_target_views: 3
+  num_target_views: 1
   max_img_per_gpu: 8

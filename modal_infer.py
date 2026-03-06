@@ -104,30 +104,57 @@ def infer(
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir="/opt/YoNoSplat/config", job_name="infer"):
-        cfg = compose(config_name="main_smoke", overrides=[
+        cfg = compose(config_name="main", overrides=[
+            "+experiment=shoes_224_finetune",
             f"dataset.shoes.roots=[{data_root}]",
-            "dataset.shoes.view_sampler.num_context_views=2",
+            f"dataset.shoes.view_sampler.num_context_views={num_context_views}",
             "dataset.shoes.view_sampler.num_target_views=1",
         ])
 
     from omegaconf import OmegaConf
+    from src.config import load_typed_root_config
+    from src.dataset.shims.crop_shim import apply_crop_shim_to_views
     from src.global_cfg import set_cfg
+    from src.model.decoder import get_decoder
+    from src.model.encoder import get_encoder
+    from src.model.model_wrapper import ModelWrapper
+    from src.dataset.norm_scale import compute_pose_norm_scale
+    from src.misc.cam_utils import camera_normalization
+
     set_cfg(OmegaConf.to_container(cfg, resolve=True))
+    typed_cfg = load_typed_root_config(cfg)
+    shoes_cfg = typed_cfg.dataset[0].shoes
 
     # ------------------------------------------------------------------
     # Load model from checkpoint
     # ------------------------------------------------------------------
-    from src.model.model_wrapper import ModelWrapper
-
     print(f"Loading checkpoint: {ckpt_path}")
     if not os.path.exists(ckpt_path):
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = ModelWrapper.load_from_checkpoint(ckpt_path, map_location=device)
+    encoder, encoder_visualizer = get_encoder(typed_cfg.model.encoder)
+    model = ModelWrapper(
+        typed_cfg.optimizer,
+        typed_cfg.test,
+        typed_cfg.train,
+        encoder,
+        encoder_visualizer,
+        get_decoder(typed_cfg.model.decoder),
+        [],
+        step_tracker=None,
+        eval_data_cfg=None,
+        gaussian_downsample_ratio=typed_cfg.model.encoder.gaussian_downsample_ratio,
+        gaussians_per_axis=typed_cfg.model.encoder.gaussians_per_axis,
+    )
+    checkpoint = torch.load(ckpt_path, map_location=device)
+    state_dict = checkpoint["state_dict"] if "state_dict" in checkpoint else checkpoint
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
     model.eval()
     model.to(device)
-    print("Model loaded.")
+    print(
+        f"Model loaded. missing_keys={len(missing_keys)}, unexpected_keys={len(unexpected_keys)}"
+    )
 
     # ------------------------------------------------------------------
     # Load shoe data
@@ -142,28 +169,40 @@ def infer(
 
     print(f"Shoe '{shoe_name}': {len(poses_data)} views available.")
 
-    IMG_SIZE = 224  # training resolution
-
     to_tensor = tf.ToTensor()
+    image_shape = tuple(shoes_cfg.input_image_shape)
+    source_shape = tuple(shoes_cfg.original_image_shape)
 
     def load_view(entry):
         """Load view → (img_tensor [3,H,W], c2w [4,4], intr [3,3]) in OpenCV convention."""
         img_path = os.path.join(shoe_dir_path, entry["file_path"])
-        image = Image.open(img_path).convert("RGB").resize((IMG_SIZE, IMG_SIZE))
-        img_tensor = to_tensor(image)
+        with Image.open(img_path) as image:
+            img_tensor = to_tensor(image.convert("RGB"))
 
         # c2w from Blender convention → OpenCV: flip Y and Z
         c2w = torch.tensor(entry["transform_matrix"], dtype=torch.float32)
         if c2w.shape == (3, 4):
             bottom = torch.tensor([[0, 0, 0, 1]], dtype=torch.float32)
             c2w = torch.cat([c2w, bottom], dim=0)
+        c2w = c2w.clone()
         c2w[:3, 1] *= -1  # flip Y
         c2w[:3, 2] *= -1  # flip Z
 
         k = entry["intrinsics"]
+        fx = float(k["fx"])
+        fy = float(k["fy"])
+        cx = float(k["cx"])
+        cy = float(k["cy"])
+        if max(abs(fx), abs(fy), abs(cx), abs(cy)) <= 2.5:
+            fx_norm, fy_norm, cx_norm, cy_norm = fx, fy, cx, cy
+        else:
+            fx_norm = fx / source_shape[1]
+            fy_norm = fy / source_shape[0]
+            cx_norm = cx / source_shape[1]
+            cy_norm = cy / source_shape[0]
         intr = torch.tensor([
-            [k["fx"] / IMG_SIZE, 0, k["cx"] / IMG_SIZE],
-            [0, k["fy"] / IMG_SIZE, k["cy"] / IMG_SIZE],
+            [fx_norm, 0, cx_norm],
+            [0, fy_norm, cy_norm],
             [0, 0, 1],
         ], dtype=torch.float32)
 
@@ -179,24 +218,30 @@ def infer(
         ctx_intr.append(intr)
 
     context_extrinsics = torch.stack(ctx_ext)  # (V, 4, 4)
+    context_intrinsics = torch.stack(ctx_intr)
 
-    # Normalise pose scale (max pairwise distance among context cameras)
-    translations = context_extrinsics[:, :3, 3]
-    if len(ctx_indices) > 1:
-        diffs = translations.unsqueeze(0) - translations.unsqueeze(1)  # (V, V, 3)
-        scale = diffs.norm(dim=-1).max().item()
-        scale = max(scale, 1e-6)
-    else:
-        scale = 1.0
+    scale = compute_pose_norm_scale(context_extrinsics, shoes_cfg.pose_norm_method)
+    scale = float(scale if isinstance(scale, (int, float)) else scale.item())
+    scale = max(scale, 1e-6)
     context_extrinsics[:, :3, 3] /= scale
+    if shoes_cfg.relative_pose:
+        context_extrinsics = camera_normalization(context_extrinsics[0:1], context_extrinsics)
+
+    context_views = apply_crop_shim_to_views(
+        {
+            "image": torch.stack(ctx_imgs),
+            "intrinsics": context_intrinsics,
+        },
+        image_shape,
+    )
 
     # Build context batch [1, V, ...]
     context_batch = {
-        "image": torch.stack(ctx_imgs).unsqueeze(0).to(device),        # (1, V, 3, H, W)
+        "image": context_views["image"].unsqueeze(0).to(device),        # (1, V, 3, H, W)
         "extrinsics": context_extrinsics.unsqueeze(0).to(device),       # (1, V, 4, 4)
-        "intrinsics": torch.stack(ctx_intr).unsqueeze(0).to(device),    # (1, V, 3, 3)
-        "near": torch.tensor([[0.1] * len(ctx_indices)]).to(device),    # (1, V)
-        "far": torch.tensor([[100.0] * len(ctx_indices)]).to(device),   # (1, V)
+        "intrinsics": context_views["intrinsics"].unsqueeze(0).to(device),  # (1, V, 3, 3)
+        "near": (torch.tensor([[0.1] * len(ctx_indices)]) / scale).to(device),    # (1, V)
+        "far": (torch.tensor([[100.0] * len(ctx_indices)]) / scale).to(device),   # (1, V)
         "index": torch.tensor([ctx_indices]).to(device),                 # (1, V)
     }
 
@@ -256,18 +301,17 @@ def infer(
         return c2w
 
     # Use intrinsics from the first context view for novel views
-    ref_intr = ctx_intr[0]  # (3, 3)
+    ref_intr = context_views["intrinsics"][0]  # (3, 3)
 
     azimuths = [i * (360.0 / num_novel_views) for i in range(num_novel_views)]
     novel_extrinsics = torch.stack([make_orbit_c2w(az) for az in azimuths])  # (N, 4, 4)
-    novel_extrinsics[:, :3, 3] /= scale   # same normalisation as context
 
     novel_batch_ext = novel_extrinsics.unsqueeze(0).to(device)          # (1, N, 4, 4)
     novel_batch_intr = ref_intr.unsqueeze(0).unsqueeze(0).expand(       # (1, N, 3, 3)
         1, num_novel_views, -1, -1
     ).to(device)
-    novel_near = torch.tensor([[0.1] * num_novel_views]).to(device)
-    novel_far = torch.tensor([[100.0] * num_novel_views]).to(device)
+    novel_near = (torch.tensor([[0.1] * num_novel_views]) / scale).to(device)
+    novel_far = (torch.tensor([[100.0] * num_novel_views]) / scale).to(device)
 
     # ------------------------------------------------------------------
     # Render novel views
@@ -280,7 +324,7 @@ def infer(
             novel_batch_intr,
             novel_near,
             novel_far,
-            (IMG_SIZE, IMG_SIZE),
+            image_shape,
         )
 
     # output.color: (1, N, 3, H, W)

@@ -1,45 +1,65 @@
 import json
 import logging
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
 import torch
 import torchvision.transforms as tf
 from PIL import Image
 from torch.utils.data import Dataset
-from .norm_scale import compute_pose_norm_scale
-import numpy as np
 
+from ..geometry.projection import get_fov
+from ..misc.cam_utils import camera_normalization
 from .dataset import DatasetCfgCommon
+from .norm_scale import compute_pose_norm_scale
+from .shims.augmentation_shim import apply_augmentation_shim
+from .shims.crop_shim import apply_crop_shim
 from .types import Stage
 from .view_sampler import ViewSampler
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class DatasetShoesCfg(DatasetCfgCommon):
     name: str
     roots: list[Path]
-    baseline_min: float
-    baseline_max: float
-    max_fov: float
-    make_baseline_1: bool
-    relative_pose: bool
-    augment: bool
-    skip_bad_shape: bool
+    baseline_min: float = 1e-3
+    baseline_max: float = 1e10
+    max_fov: float = 100.0
+    make_baseline_1: bool = True
+    relative_pose: bool = True
+    augment: bool = True
+    skip_bad_shape: bool = True
     pose_norm_method: str = "max_pairwise_d"
     val_fraction: float = 0.1
+
 
 @dataclass
 class DatasetShoesCfgWrapper:
     shoes: DatasetShoesCfg
 
+
+@dataclass
+class ShoeView:
+    image_path: Path
+    extrinsics: torch.Tensor
+    intrinsics: torch.Tensor
+
+
+@dataclass
+class ShoeScene:
+    name: str
+    views: list[ShoeView]
+
+
 class DatasetShoes(Dataset):
     cfg: DatasetShoesCfg
     stage: Stage
     view_sampler: ViewSampler
+
+    near: float = 0.1
+    far: float = 100.0
 
     def __init__(
         self,
@@ -54,143 +74,233 @@ class DatasetShoes(Dataset):
         self.to_tensor = tf.ToTensor()
         self.name = cfg.name
 
-        # Find all shoe directories that have a completed poses.json
-        self.shoe_dirs = []
+        scenes: list[ShoeScene] = []
         skipped = 0
         for root in cfg.roots:
             if not root.exists():
                 logger.warning(f"Root {root} does not exist")
                 continue
-            for d in sorted(root.iterdir()):
-                if d.is_dir() and (d / "poses.json").exists():
-                    self.shoe_dirs.append(d)
-                elif d.is_dir():
+            for shoe_dir in sorted(root.iterdir()):
+                if not shoe_dir.is_dir():
+                    continue
+                scene = self._load_scene(shoe_dir)
+                if scene is None:
                     skipped += 1
-        
-        if skipped:
-            logger.info(f"Skipped {skipped} incomplete shoes (no poses.json)")
-        logger.info(f"Found {len(self.shoe_dirs)} complete shoes in {cfg.roots}")
+                    continue
+                scenes.append(scene)
 
-        # Deterministic train/val split — sort globally, last val_fraction% = val
-        self.shoe_dirs = sorted(self.shoe_dirs)
-        n_total = len(self.shoe_dirs)
-        n_val = max(1, int(round(n_total * cfg.val_fraction)))
-        n_train = n_total - n_val
+        if skipped:
+            logger.info(f"Skipped {skipped} invalid or incomplete shoes")
+
+        scenes = sorted(scenes, key=lambda scene: scene.name)
+        total_scenes = len(scenes)
+        val_scenes = 0
+        if total_scenes > 1 and cfg.val_fraction > 0:
+            val_scenes = max(1, int(round(total_scenes * cfg.val_fraction)))
+            val_scenes = min(val_scenes, total_scenes - 1)
+
         if stage == "val":
-            self.shoe_dirs = self.shoe_dirs[n_train:]
+            self.scenes = scenes[total_scenes - val_scenes :]
         elif stage == "train":
-            self.shoe_dirs = self.shoe_dirs[:n_train]
-        # "test" keeps all dirs unchanged
+            self.scenes = scenes[: total_scenes - val_scenes]
+        else:
+            self.scenes = scenes
+
         logger.info(
-            f"Stage={stage}: using {len(self.shoe_dirs)}/{n_total} shoes "
+            f"Stage={stage}: using {len(self.scenes)}/{total_scenes} shoes "
             f"(val_fraction={cfg.val_fraction})"
         )
 
-    def __len__(self):
-        return len(self.shoe_dirs)
-
-    def _load_view(self, entry, shoe_dir):
-        """Load a single view: image tensor, w2c extrinsic, intrinsic matrix."""
-        img_path = shoe_dir / entry['file_path']
-        image = Image.open(img_path).convert("RGB")
-
-        # Resize if needed (e.g. 512 -> 518 for DINOv2 patch_size=14)
-        if self.cfg.input_image_shape:
-            image = image.resize((self.cfg.input_image_shape[1], self.cfg.input_image_shape[0]))
-
-        img_tensor = self.to_tensor(image)
-
-        # Extrinsics: YoNoSplat/pixelSplat convention = camera-to-world (c2w)
-        # OpenCV-style: +X right, +Y down, +Z forward
-        c2w = torch.tensor(entry['transform_matrix'], dtype=torch.float32)
-        # Ensure 4x4 matrix
-        if c2w.shape == (3, 4):
-            bottom = torch.tensor([[0, 0, 0, 1]], dtype=torch.float32)
-            c2w = torch.cat([c2w, bottom], dim=0)
-        # Blender convention: +X right, +Y up, +Z backward
-        # Convert to OpenCV: flip Y and Z axes
-        c2w[:3, 1] *= -1  # flip Y
-        c2w[:3, 2] *= -1  # flip Z
-
-        # Intrinsics: NORMALIZED (fx/width, fy/height, cx/width, cy/height)
-        # pixelSplat convention: row 0 divided by image width, row 1 by height
-        k = entry['intrinsics']
-        img_w, img_h = image.size  # after resize
-        intr = torch.tensor([
-            [k['fx'] / img_w, 0, k['cx'] / img_w],
-            [0, k['fy'] / img_h, k['cy'] / img_h],
-            [0, 0, 1]
-        ], dtype=torch.float32)
-
-        return img_tensor, c2w, intr
-
-    def __getitem__(self, index):
-        # MixedBatchSampler yields (idx, num_context_views) tuples
-        if isinstance(index, (tuple, list)):
-            index, num_context = index
-        else:
-            num_context = self.view_sampler.cfg.num_context_views
-
-        shoe_dir = self.shoe_dirs[index]
+    def _load_scene(self, shoe_dir: Path) -> ShoeScene | None:
         poses_path = shoe_dir / "poses.json"
+        if not poses_path.exists():
+            return None
 
-        with open(poses_path, 'r') as f:
-            poses_data = json.load(f)
+        try:
+            with poses_path.open("r") as f:
+                poses_data = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning(f"Skipped {shoe_dir.name}: could not read poses.json ({exc})")
+            return None
 
-        num_available = len(poses_data)
-        num_target = self.view_sampler.cfg.num_target_views
+        if not isinstance(poses_data, list):
+            logger.warning(f"Skipped {shoe_dir.name}: poses.json must be a list of views")
+            return None
 
-        # Randomly sample context + target indices (no overlap)
-        all_indices = np.arange(num_available)
-        np.random.shuffle(all_indices)
-        context_indices = sorted(all_indices[:num_context].tolist())
-        target_indices = sorted(all_indices[num_context:num_context + num_target].tolist())
+        views: list[ShoeView] = []
+        for entry in poses_data:
+            view = self._parse_view(entry, shoe_dir)
+            if view is not None:
+                views.append(view)
 
-        # Load only the selected views
-        ctx_imgs, ctx_ext, ctx_intr = [], [], []
-        for i in context_indices:
-            img, ext, intr = self._load_view(poses_data[i], shoe_dir)
-            ctx_imgs.append(img)
-            ctx_ext.append(ext)
-            ctx_intr.append(intr)
+        min_required_views = self._min_required_views()
+        if len(views) < min_required_views:
+            logger.warning(
+                f"Skipped {shoe_dir.name}: only {len(views)} valid views, need at least {min_required_views}"
+            )
+            return None
 
-        tgt_imgs, tgt_ext, tgt_intr = [], [], []
-        for i in target_indices:
-            img, ext, intr = self._load_view(poses_data[i], shoe_dir)
-            tgt_imgs.append(img)
-            tgt_ext.append(ext)
-            tgt_intr.append(intr)
+        return ShoeScene(name=shoe_dir.name, views=views)
 
-        # Pose normalization (max pairwise distance) — critical per paper
-        context_extrinsics = torch.stack(ctx_ext)
-        target_extrinsics = torch.stack(tgt_ext)
-        all_extrinsics = torch.cat([context_extrinsics, target_extrinsics], dim=0)
-        
-        scale = compute_pose_norm_scale(context_extrinsics, "max_pairwise_d")
-        if isinstance(scale, (int, float)):
-            scale = max(scale, 1e-6)  # avoid division by zero
+    def _parse_view(self, entry: dict, shoe_dir: Path) -> ShoeView | None:
+        try:
+            image_path = shoe_dir / entry["file_path"]
+            if not image_path.exists():
+                return None
+
+            c2w = torch.tensor(entry["transform_matrix"], dtype=torch.float32)
+            if c2w.shape == (3, 4):
+                bottom = torch.tensor([[0, 0, 0, 1]], dtype=torch.float32)
+                c2w = torch.cat([c2w, bottom], dim=0)
+            if c2w.shape != (4, 4):
+                return None
+
+            # Blender c2w -> OpenCV c2w.
+            c2w = c2w.clone()
+            c2w[:3, 1] *= -1
+            c2w[:3, 2] *= -1
+
+            intrinsics = entry["intrinsics"]
+            fx = float(intrinsics["fx"])
+            fy = float(intrinsics["fy"])
+            cx = float(intrinsics["cx"])
+            cy = float(intrinsics["cy"])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+        src_h, src_w = self.cfg.original_image_shape
+        if max(abs(fx), abs(fy), abs(cx), abs(cy)) <= 2.5:
+            fx_norm, fy_norm, cx_norm, cy_norm = fx, fy, cx, cy
         else:
-            scale = torch.clamp(scale, min=1e-6)
-        
-        context_extrinsics[:, :3, 3] /= scale
-        target_extrinsics[:, :3, 3] /= scale
+            fx_norm = fx / src_w
+            fy_norm = fy / src_h
+            cx_norm = cx / src_w
+            cy_norm = cy / src_h
 
-        return {
+        k = torch.tensor(
+            [
+                [fx_norm, 0.0, cx_norm],
+                [0.0, fy_norm, cy_norm],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=torch.float32,
+        )
+        return ShoeView(image_path=image_path, extrinsics=c2w, intrinsics=k)
+
+    def _min_required_views(self) -> int:
+        context_views = self.view_sampler.cfg.num_context_views
+        if isinstance(context_views, list):
+            context_views = context_views[-1]
+        return context_views + self.view_sampler.cfg.num_target_views
+
+    def __len__(self) -> int:
+        return len(self.scenes)
+
+    def _load_images(
+        self,
+        scene: ShoeScene,
+        indices: torch.Tensor,
+    ) -> torch.Tensor:
+        images = []
+        for index in indices.tolist():
+            with Image.open(scene.views[index].image_path) as image:
+                image_tensor = self.to_tensor(image.convert("RGB"))
+            images.append(image_tensor)
+        images = torch.stack(images)
+
+        expected_shape = (3, *self.cfg.original_image_shape)
+        if self.cfg.skip_bad_shape and images.shape[1:] != expected_shape:
+            raise ValueError(
+                f"Bad image shape for {scene.name}: expected {expected_shape}, got {tuple(images.shape[1:])}"
+            )
+        return images
+
+    def _build_example(
+        self,
+        scene: ShoeScene,
+        num_context_views: int | None,
+    ) -> dict:
+        extrinsics = torch.stack([view.extrinsics for view in scene.views])
+        intrinsics = torch.stack([view.intrinsics for view in scene.views])
+
+        if (get_fov(intrinsics).rad2deg() > self.cfg.max_fov).any():
+            raise ValueError(f"Scene {scene.name} has field of view above {self.cfg.max_fov}")
+
+        context_indices, target_indices, overlap = self.view_sampler.sample(
+            scene.name,
+            extrinsics,
+            intrinsics,
+            num_context_views=num_context_views,
+        )
+        context_indices = context_indices.to(dtype=torch.long, device=torch.device("cpu"))
+        target_indices = target_indices.to(dtype=torch.long, device=torch.device("cpu"))
+
+        context_images = self._load_images(scene, context_indices)
+        target_images = self._load_images(scene, target_indices)
+
+        context_extrinsics = extrinsics[context_indices].clone()
+        target_extrinsics = extrinsics[target_indices].clone()
+        num_context_images = len(context_extrinsics)
+        all_used_extrinsics = torch.cat([context_extrinsics, target_extrinsics], dim=0)
+
+        scale = compute_pose_norm_scale(context_extrinsics, self.cfg.pose_norm_method)
+        scale = float(scale if isinstance(scale, (int, float)) else scale.item())
+        scale = max(scale, 1e-6)
+        if scale < self.cfg.baseline_min or scale > self.cfg.baseline_max:
+            raise ValueError(
+                f"Scene {scene.name} baseline out of range: {scale:.6f}"
+            )
+        all_used_extrinsics[:, :3, 3] /= scale
+
+        if self.cfg.relative_pose:
+            all_used_extrinsics = camera_normalization(
+                all_used_extrinsics[0:1],
+                all_used_extrinsics,
+            )
+
+        example = {
             "context": {
-                "image": torch.stack(ctx_imgs),
-                "extrinsics": context_extrinsics,
-                "intrinsics": torch.stack(ctx_intr),
-                "index": torch.tensor(context_indices, dtype=torch.long),
-                "near": torch.tensor([0.1] * num_context),
-                "far": torch.tensor([100.0] * num_context),
+                "extrinsics": all_used_extrinsics[:num_context_images],
+                "intrinsics": intrinsics[context_indices],
+                "image": context_images,
+                "near": self.get_bound("near", len(context_indices)) / scale,
+                "far": self.get_bound("far", len(context_indices)) / scale,
+                "index": context_indices,
+                "overlap": overlap.cpu(),
             },
             "target": {
-                "image": torch.stack(tgt_imgs),
-                "extrinsics": target_extrinsics,
-                "intrinsics": torch.stack(tgt_intr),
-                "index": torch.tensor(target_indices, dtype=torch.long),
-                "near": torch.tensor([0.1] * num_target),
-                "far": torch.tensor([100.0] * num_target),
+                "extrinsics": all_used_extrinsics[num_context_images:],
+                "intrinsics": intrinsics[target_indices],
+                "image": target_images,
+                "near": self.get_bound("near", len(target_indices)) / scale,
+                "far": self.get_bound("far", len(target_indices)) / scale,
+                "index": target_indices,
             },
-            "scene": shoe_dir.name
+            "scene": scene.name,
         }
+
+        if self.stage == "train" and self.cfg.augment:
+            example = apply_augmentation_shim(example)
+        return apply_crop_shim(example, tuple(self.cfg.input_image_shape))
+
+    def __getitem__(self, index):
+        if len(self.scenes) == 0:
+            raise IndexError("No valid shoe scenes were found")
+
+        num_context_views = None
+        if isinstance(index, (tuple, list)):
+            index, num_context_views = index
+
+        for retry in range(min(8, len(self.scenes))):
+            scene = self.scenes[(index + retry) % len(self.scenes)]
+            try:
+                return self._build_example(scene, num_context_views)
+            except (IndexError, OSError, ValueError) as exc:
+                logger.warning(f"Skipped scene {scene.name}: {exc}")
+                continue
+
+        raise RuntimeError(f"Failed to load a valid sample after retries from index {index}")
+
+    def get_bound(self, bound: str, num_views: int) -> torch.Tensor:
+        value = torch.tensor(getattr(self, bound), dtype=torch.float32)
+        return value.repeat(num_views)

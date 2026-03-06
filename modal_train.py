@@ -84,6 +84,7 @@ def train(
     wandb_key: str = None,
     finetune: str = "dl3dv",  # "re10k", "dl3dv", "pi3", or "none"
     lr: float = None,  # learning rate (default: 1e-5 for finetune, 1e-4 for scratch)
+    experiment: str = "shoes_224_finetune",
 ):
     import subprocess
     import torch
@@ -139,39 +140,40 @@ def train(
         print("Training from scratch (no pretrained weights)")
 
     # Default learning rates
-    if lr is None:
+    if lr is None and resume_from is None:
         lr = 1e-5 if finetune_ckpt else 1e-4
-    print(f"Learning rate: {lr}")
+    print(f"Learning rate: {lr if lr is not None else 'resume checkpoint state'}")
+    max_img_per_gpu = max(1, batch_size * max(1, num_context_views))
+    print(f"Mixed sampler max_img_per_gpu: {max_img_per_gpu}")
 
     # Build hydra overrides
     overrides = [
+        f"+experiment={experiment}",
         f"dataset.shoes.roots=[{data_root}]",
         f"dataset.shoes.view_sampler.num_context_views={num_context_views}",
         f"dataset.shoes.view_sampler.num_target_views={num_target_views}",
-        f"data_loader.train.batch_size={batch_size}",
+        f"dataset.shoes.view_sampler.max_img_per_gpu={max_img_per_gpu}",
         f"data_loader.train.num_workers={num_workers}",
         f"trainer.max_steps={max_steps}",
-        f"optimizer.lr={lr}",
         f"wandb.mode={wandb_mode}",
         # Save checkpoints to persistent volume
         "checkpointing.save_weights_only=false",
-        "checkpointing.every_n_train_steps=1000",
+        "checkpointing.every_n_train_steps=500",
     ]
+    if lr is not None and resume_from is None:
+        overrides.append(f"optimizer.lr={lr}")
 
     # Add pretrained weights config
-    # For fine-tuning from a weights-only checkpoint, load via encoder pretrained_weights
-    # (checkpointing.load expects full training state with optimizer)
-    if finetune_ckpt:
+    if finetune_ckpt and resume_from is None:
         overrides.append(f"model.encoder.pretrained_weights={finetune_ckpt}")
-    elif pretrained_backbone:
+    elif pretrained_backbone and resume_from is None:
         overrides.append(f"model.encoder.pretrained_weights={pretrained_backbone}")
     
     if resume_from:
         overrides.append(f"checkpointing.load={resume_from}")
 
     cmd = [
-        "python", "-u", "src/main.py",
-        "--config-name", "main_smoke",
+        "python", "-u", "-m", "src.main",
     ] + overrides
 
     print(f"Running: {' '.join(cmd)}")
@@ -229,11 +231,14 @@ def main(
     max_steps: int = 50000,
     batch_size: int = 4,
     num_workers: int = 4,
+    num_context_views: int = 2,
+    num_target_views: int = 1,
     resume_from: str = None,
     wandb_key: str = None,
     check_only: bool = False,
     finetune: str = "dl3dv",
     lr: float = None,
+    experiment: str = "shoes_224_finetune",
 ):
     if check_only:
         result = check_dataset.remote()
@@ -243,14 +248,18 @@ def main(
     print(f"Starting YoNoSplat training on Modal A100-80GB")
     print(f"  max_steps={max_steps}, batch_size={batch_size}")
     print(f"  Fine-tune: {finetune}, LR: {lr or 'auto'}")
+    print(f"  Experiment: {experiment}")
     print(f"  Resume: {resume_from or 'N/A'}")
 
     train.remote(
         max_steps=max_steps,
         batch_size=batch_size,
         num_workers=num_workers,
+        num_context_views=num_context_views,
+        num_target_views=num_target_views,
         resume_from=resume_from,
         wandb_key=wandb_key,
         finetune=finetune,
         lr=lr,
+        experiment=experiment,
     )

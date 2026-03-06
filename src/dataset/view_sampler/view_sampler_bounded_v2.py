@@ -79,6 +79,7 @@ class ViewSamplerBoundedV2(ViewSampler[ViewSamplerBoundedV2Cfg]):
         intrinsics: Float[Tensor, "view 3 3"],
         device: torch.device = torch.device("cpu"),
         max_num_views: Optional[int] = None,
+        num_context_views: Optional[int] = None,
     ) -> tuple[
         Int64[Tensor, " context_view"],  # indices for context views
         Int64[Tensor, " target_view"],  # indices for target views
@@ -191,21 +192,22 @@ class ViewSamplerBoundedV2(ViewSampler[ViewSamplerBoundedV2Cfg]):
             index_context_right %= num_views
 
         # determine number of context views if a range is given
-        if isinstance(self.cfg.num_context_views, list):
-            assert len(self.cfg.num_context_views) == 2
-            # To ensure all GPUs get the same number of views, we seed a generator
-            # with the global step.
-            generator = torch.Generator(device=device)
-            generator.manual_seed(self.global_step)
-            num_context_views = torch.randint(
-                self.cfg.num_context_views[0],
-                self.cfg.num_context_views[1] + 1,
-                size=(),
-                generator=generator,
-                device=device,
-            ).item()
-        else:
-            num_context_views = self.cfg.num_context_views
+        if num_context_views is None:
+            if isinstance(self.cfg.num_context_views, list):
+                assert len(self.cfg.num_context_views) == 2
+                # To ensure all GPUs get the same number of views, we seed a generator
+                # with the global step.
+                generator = torch.Generator(device=device)
+                generator.manual_seed(self.global_step)
+                num_context_views = torch.randint(
+                    self.cfg.num_context_views[0],
+                    self.cfg.num_context_views[1] + 1,
+                    size=(),
+                    generator=generator,
+                    device=device,
+                ).item()
+            else:
+                num_context_views = self.cfg.num_context_views
 
         # If more than two context views are desired, pick extra context views between
         # the left and right ones.

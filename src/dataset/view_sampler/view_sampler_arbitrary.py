@@ -26,6 +26,7 @@ class ViewSamplerArbitrary(ViewSampler[ViewSamplerArbitraryCfg]):
         extrinsics: Float[Tensor, "view 4 4"],
         intrinsics: Float[Tensor, "view 3 3"],
         device: torch.device = torch.device("cpu"),
+        num_context_views: int | None = None,
     ) -> tuple[
         Int64[Tensor, " context_view"],  # indices for context views
         Int64[Tensor, " target_view"],  # indices for target views
@@ -33,11 +34,12 @@ class ViewSamplerArbitrary(ViewSampler[ViewSamplerArbitraryCfg]):
     ]:
         """Arbitrarily sample context and target views."""
         num_views, _, _ = extrinsics.shape
+        num_context = num_context_views or self.cfg.num_context_views
 
         index_context = torch.randint(
             0,
             num_views,
-            size=(self.cfg.num_context_views,),
+            size=(num_context,),
             device=device,
         )
 
@@ -47,10 +49,10 @@ class ViewSamplerArbitrary(ViewSampler[ViewSamplerArbitraryCfg]):
                 self.cfg.context_views, dtype=torch.int64, device=device
             )
 
-            if self.cfg.num_context_views != len(self.cfg.context_views):
-                index_context = add_addtional_context_index(index_context, self.cfg.num_context_views)
+            if num_context != len(self.cfg.context_views):
+                index_context = add_addtional_context_index(index_context, num_context)
             else:
-                assert len(self.cfg.context_views) == self.cfg.num_context_views
+                assert len(self.cfg.context_views) == num_context
         index_target = torch.randint(
             0,
             num_views,
