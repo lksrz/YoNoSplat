@@ -73,3 +73,42 @@ For ScanNet-1500, you need to download download `test.npy` [here](https://github
 ## Custom Datasets
 
 If you would like to train and/or evaluate on additional datasets, just modify the [data processing scripts](src/scripts) to convert the dataset format. Kindly note the [camera conventions](https://github.com/cvg/NoPoSplat/tree/main?tab=readme-ov-file#camera-conventions) used in this codebase.
+
+## Shoes (Blender RGBA renders)
+
+This fork adds a native `shoes` dataset path for Blender-rendered multi-view shoes.
+
+Expected structure:
+
+```text
+shoe_renders_final/
+├── shoe_id/
+│   ├── view_000.png
+│   ├── view_001.png
+│   ├── ...
+│   └── poses.json
+```
+
+`poses.json` is expected to be a list of views. Each view should provide:
+- `file_path`
+- `transform_matrix`
+- `intrinsics.fx`
+- `intrinsics.fy`
+- `intrinsics.cx`
+- `intrinsics.cy`
+
+Notes:
+- `transform_matrix` should be Blender `c2w`; the loader converts it to OpenCV convention.
+- Intrinsics may be stored either in source-image pixel units or already normalized.
+- The default source resolution is `512x512`, configured by `dataset.shoes.original_image_shape`.
+- Directories without `poses.json` are skipped.
+- Scenes with too few valid views for the configured sampler are skipped.
+
+### Alpha-aware training behavior
+
+If the images contain alpha:
+- training composites each view onto a random RGB background,
+- validation and inference composite onto a fixed white background,
+- `mse`, `lpips`, and `perceptual` supervision operate on the alpha-masked foreground instead of the synthetic background.
+
+This is the recommended format for shoe training because it prevents the model from learning a fixed studio background as part of the 3D scene.

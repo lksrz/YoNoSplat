@@ -1,5 +1,54 @@
 # Evaluation
 
+## Shoes (qualitative evaluation)
+
+For the shoe fine-tuning workflow, the primary evaluation path is qualitative inference on a held-out shoe plus optional `.ply` export.
+
+### Modal inference
+
+```bash
+MODAL_PROFILE=wearfits modal run modal_infer.py \
+  --ckpt-path /checkpoints/outputs/last.ckpt \
+  --shoe-name YOUR_SHOE_ID \
+  --num-context-views 2 \
+  --num-novel-views 4
+```
+
+Outputs are written to:
+
+```text
+/checkpoints/infer_outputs/YOUR_SHOE_ID/
+```
+
+This inference path:
+- loads the checkpoint by `state_dict`, so it works with the current full-state training checkpoints,
+- uses the first `N` shoe views as context,
+- renders a small orbit of novel views,
+- optionally exports `shoe.ply` for Gaussian viewers.
+
+### Local no-pose inference
+
+```bash
+python infer_custom.py \
+  --images /path/to/images \
+  --checkpoint /path/to/checkpoint.ckpt \
+  --output /tmp/yonosplat_out
+```
+
+This path is useful for sanity checks, but it is not equivalent to the posed shoe dataset path.
+
+### Background and metrics note
+
+For RGBA shoe data:
+- training uses random per-view backgrounds plus alpha-masked supervision,
+- validation and inference use a fixed white background for stable visual comparisons.
+
+If you compare outputs across checkpoints, keep the evaluation background fixed.
+
+### `.ply` export note
+
+The current exporter derives orientation and scale from world-space covariance and writes viewer-friendly opacity values. If an older `.ply` looked corrupted in SuperSplat, regenerate it with the current code.
+
 ## Novel View Synthesis
 
 The model supports multiple evaluation modes:
