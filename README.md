@@ -17,7 +17,8 @@ Fork of [cvg/YoNoSplat](https://github.com/cvg/YoNoSplat) adapted for multi-view
 - Added alpha-aware training for RGBA renders:
   - random background per training view,
   - fixed background for validation and inference,
-  - foreground-only supervision for `mse`, `lpips`, and `perceptual` losses.
+  - foreground-only supervision for `mse`, `lpips`, and `perceptual` losses,
+  - silhouette supervision from rendered alpha vs. target mask.
 - Fixed `.ply` export so Gaussian viewers such as SuperSplat receive world-space orientation and viewer-friendly opacity values.
 
 ## Current Recommended Workflow
@@ -27,6 +28,55 @@ Fork of [cvg/YoNoSplat](https://github.com/cvg/YoNoSplat) adapted for multi-view
 4. If quality is sane, continue to the full run.
 
 If a checkpoint was trained before the alpha-aware background fix, do not resume it. Start a new run from the pretrained base checkpoint instead.
+
+## Session Handoff (March 6, 2026)
+
+This section is the short state summary for the next session.
+
+### What was completed
+- shoe dataset path is geometry-aware and no longer uses random index sampling,
+- `shoes_224_finetune` is the default shoe recipe on Modal and local training,
+- training checkpoints are full-state and resume exactly,
+- RGBA shoes use random per-view train backgrounds plus masked RGB supervision,
+- `.ply` export was fixed for external Gaussian viewers,
+- a second anti-fog package was added in commit `cca0115`:
+  - decoder now exposes rendered `alpha`,
+  - new `silhouette` loss supervises predicted alpha against the target mask,
+  - shoe-only opacity regularization was increased,
+  - eval/inference prune threshold was raised to `0.03`,
+  - val/test/infer previews now composite predictions with the batch background instead of leaving decoder-black backgrounds,
+  - `.ply` export in inference paths now filters low-opacity Gaussians more aggressively.
+
+### What was observed before the anti-fog package
+- Modal smoke tests at `100` steps and `5000` steps were stable.
+- Dataset split on the current volume was `629 train / 33 val`.
+- Throughput on A100-80GB was roughly `0.57 it/s` early and `0.96-1.02 it/s` after warm-up.
+- Loss went down into the `0.01-0.03` range by about `5k-6k` steps.
+- The model learned a recognizable shoe silhouette, but exported `.ply` still showed a gray semi-transparent cloud attached to the shoe.
+- That cloud is treated as a real model issue, not a remaining PLY export bug.
+
+### Current status
+- The pre-silhouette run should not be resumed for the real long training.
+- The new anti-fog package is implemented and committed, but it has not yet been smoke-tested on GPU.
+- The next meaningful run should start fresh from pretrained `dl3dv`, not from the foggy checkpoint.
+
+### Next recommended step
+```bash
+MODAL_PROFILE=wearfits modal run modal_train.py \
+  --experiment shoes_224_finetune \
+  --batch-size 4 \
+  --num-workers 4 \
+  --num-context-views 2 \
+  --num-target-views 1 \
+  --max-steps 5000 \
+  --finetune dl3dv
+```
+
+### What to inspect in that next run
+- `Alpha (Prediction)` vs `Mask (Ground Truth)` in validation previews,
+- whether the `.ply` still has a gray capsule/fog around the shoe,
+- whether qualitative renders stay clean without reintroducing background artifacts,
+- whether loss remains stable after adding `silhouette`.
 
 ## Cloud Training (Modal.com)
 
@@ -236,7 +286,9 @@ Defaults:
 - validation split: `5%`
 - checkpoint interval: `500` steps
 - checkpoint format: full-state Lightning checkpoint
-- default losses: `mse`, `lpips`, `opacity`, `intrinsic`, `pose`
+- default losses: `mse`, `lpips`, `silhouette`, `opacity`, `intrinsic`, `pose`
+- eval / inference prune threshold: `0.03`
+- shoe opacity regularization weight: `0.05`
 
 Sampler defaults:
 - context separation: `20-60` degrees
@@ -260,6 +312,7 @@ Validated on March 6, 2026:
 - Validation ran successfully at step `5000`.
 - Qualitative renders showed shoe silhouette learning.
 - Viewer compatibility issues in exported `.ply` were fixed by the export update.
+- The post-`cca0115` silhouette/anti-fog package still needs a fresh GPU smoke test.
 
 ## Related Docs
 - [DATASETS.md](DATASETS.md)
