@@ -178,7 +178,13 @@ def infer(
         """Load view → (img_tensor [3,H,W], c2w [4,4], intr [3,3]) in OpenCV convention."""
         img_path = os.path.join(shoe_dir_path, entry["file_path"])
         with Image.open(img_path) as image:
-            img_tensor = to_tensor(image.convert("RGB"))
+            if image.mode == "RGBA":
+                rgba = to_tensor(image)
+                rgb = rgba[:3]
+                alpha = rgba[3:4]
+                img_tensor = rgb * alpha + (1.0 - alpha)  # white background
+            else:
+                img_tensor = to_tensor(image.convert("RGB"))
 
         # c2w from Blender convention → OpenCV: flip Y and Z
         c2w = torch.tensor(entry["transform_matrix"], dtype=torch.float32)

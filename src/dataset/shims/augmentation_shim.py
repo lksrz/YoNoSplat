@@ -14,11 +14,14 @@ def reflect_extrinsics(
 
 
 def reflect_views(views: AnyViews) -> AnyViews:
-    return {
+    result = {
         **views,
         "image": views["image"].flip(-1),
         "extrinsics": reflect_extrinsics(views["extrinsics"]),
     }
+    if "mask" in views:
+        result["mask"] = views["mask"].flip(-1)
+    return result
 
 
 def apply_augmentation_shim(
