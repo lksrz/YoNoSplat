@@ -74,6 +74,7 @@ def infer(
     num_context_views: int = 2,
     num_novel_views: int = 4,
     data_root: str = "/data",
+    export_ply_flag: bool = True,
 ):
     """
     Run inference: load checkpoint, encode context views of `shoe_name`,
@@ -345,6 +346,30 @@ def infer(
         saved_paths.append(fname)
         print(f"  Saved: {fname}")
 
+    # ------------------------------------------------------------------
+    # Export PLY if requested
+    # ------------------------------------------------------------------
+    if export_ply_flag:
+        from src.model.ply_export import export_ply as save_ply
+        from pathlib import Path
+        
+        ply_path = os.path.join(out_dir, "shoe.ply")
+        print(f"Exporting .ply to {ply_path} ...")
+        
+        # gaussians is a dataclass with fields (batch, gaussian, ...)
+        # we take the first item in the batch (b=0)
+        save_ply(
+            gaussians.means[0],
+            gaussians.scales[0],
+            gaussians.rotations[0],
+            gaussians.harmonics[0],
+            gaussians.opacities[0],
+            Path(ply_path),
+            shift_and_scale=True
+        )
+        saved_paths.append(ply_path)
+        print(f"  Saved: {ply_path}")
+
     # Persist to Modal volume
     checkpoints_vol.commit()
 
@@ -356,9 +381,10 @@ def infer(
 def main(
     ckpt_path: str = "/checkpoints/outputs/last.ckpt",
     shoe_name: str = "",
-    num_context_views: int = 2,
+    num_context_views: int = 10,
     num_novel_views: int = 4,
     data_root: str = "/data",
+    export_ply: bool = True,
 ):
     if not shoe_name:
         raise ValueError("--shoe-name is required. Provide a shoe directory name from the dataset volume.")
@@ -369,6 +395,7 @@ def main(
     print(f"  context    : {num_context_views} views")
     print(f"  novel      : {num_novel_views} views")
     print(f"  data_root  : {data_root}")
+    print(f"  export_ply : {export_ply}")
     print()
 
     saved = infer.remote(
@@ -377,5 +404,6 @@ def main(
         num_context_views=num_context_views,
         num_novel_views=num_novel_views,
         data_root=data_root,
+        export_ply_flag=export_ply,
     )
     print(f"Saved renders: {saved}")
