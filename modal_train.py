@@ -159,12 +159,14 @@ def train(
     ]
 
     # Add pretrained weights config
-    if pretrained_backbone:
+    # For fine-tuning from a weights-only checkpoint, load via encoder pretrained_weights
+    # (checkpointing.load expects full training state with optimizer)
+    if finetune_ckpt:
+        overrides.append(f"model.encoder.pretrained_weights={finetune_ckpt}")
+    elif pretrained_backbone:
         overrides.append(f"model.encoder.pretrained_weights={pretrained_backbone}")
     
-    if finetune_ckpt:
-        overrides.append(f"checkpointing.load={finetune_ckpt}")
-    elif resume_from:
+    if resume_from:
         overrides.append(f"checkpointing.load={resume_from}")
 
     cmd = [
