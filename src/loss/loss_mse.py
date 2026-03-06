@@ -6,6 +6,7 @@ from torch import Tensor
 from ..dataset.types import BatchedExample
 from ..model.decoder.decoder import DecoderOutput
 from ..model.types import Gaussians
+from .foreground_utils import get_supervised_images
 from .loss import Loss
 
 
@@ -30,16 +31,21 @@ class LossMse(Loss[LossMseCfg, LossMseCfgWrapper]):
         extra_info: dict | None = None,
     ) -> Float[Tensor, ""]:
         if use_context:
-            delta = prediction.color - batch["context"]["image"]
-            mask = batch["context"].get("mask", None)
+            pred_image, target_image, mask = get_supervised_images(
+                batch["context"],
+                prediction.color,
+            )
         else:
-            delta = prediction.color - batch["target"]["image"]
-            mask = batch["target"].get("mask", None)
+            pred_image, target_image, mask = get_supervised_images(
+                batch["target"],
+                prediction.color,
+            )
+        delta = pred_image - target_image
         sq_error = delta**2
         if mask is not None:
-            # mask shape: [b, v, 1, H, W] — only compute loss on foreground
+            # Mask shape: [b, v, 1, H, W]. With RGBA data, target_image is the
+            # straight RGB foreground and both tensors are premultiplied by alpha.
             mask = mask.to(sq_error.device)
-            sq_error = sq_error * mask
             # Mean over foreground pixels only (avoid division by zero)
             num_fg = mask.sum().clamp_min(1.0)
             return self.cfg.weight * sq_error.sum() / num_fg

@@ -11,6 +11,7 @@ from ..dataset.types import BatchedExample
 from ..misc.nn_module_tools import convert_to_buffer
 from ..model.decoder.decoder import DecoderOutput
 from ..model.types import Gaussians
+from .foreground_utils import get_supervised_images
 from .loss import Loss
 
 
@@ -46,17 +47,23 @@ class LossLpips(Loss[LossLpipsCfg, LossLpipsCfgWrapper]):
         extra_info: dict | None = None,
     ) -> Float[Tensor, ""]:
         if use_context:
-            image = batch["context"]["image"]
+            pred_image, target_image, _ = get_supervised_images(
+                batch["context"],
+                prediction.color,
+            )
         else:
-            image = batch["target"]["image"]
+            pred_image, target_image, _ = get_supervised_images(
+                batch["target"],
+                prediction.color,
+            )
 
         # Before the specified step, don't apply the loss.
         if global_step < self.cfg.apply_after_step:
-            return torch.tensor(0, dtype=torch.float32, device=image.device)
+            return torch.tensor(0, dtype=torch.float32, device=target_image.device)
 
         loss = self.lpips.forward(
-            rearrange(prediction.color, "b v c h w -> (b v) c h w"),
-            rearrange(image, "b v c h w -> (b v) c h w"),
+            rearrange(pred_image, "b v c h w -> (b v) c h w"),
+            rearrange(target_image, "b v c h w -> (b v) c h w"),
             normalize=True,
         )
         return self.cfg.weight * loss.mean()

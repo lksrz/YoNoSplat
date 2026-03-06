@@ -82,6 +82,9 @@ def apply_crop_shim_to_views(views: AnyViews, shape: tuple[int, int]) -> AnyView
         "image": images,
         "intrinsics": intrinsics,
     }
+    if "foreground" in views:
+        foreground, _ = rescale_and_crop(views["foreground"], views["intrinsics"], shape)
+        result["foreground"] = foreground
     if "mask" in views:
         masks, _ = rescale_and_crop(views["mask"], views["intrinsics"], shape)
         result["mask"] = masks

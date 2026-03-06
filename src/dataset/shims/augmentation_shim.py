@@ -19,6 +19,8 @@ def reflect_views(views: AnyViews) -> AnyViews:
         "image": views["image"].flip(-1),
         "extrinsics": reflect_extrinsics(views["extrinsics"]),
     }
+    if "foreground" in views:
+        result["foreground"] = views["foreground"].flip(-1)
     if "mask" in views:
         result["mask"] = views["mask"].flip(-1)
     return result

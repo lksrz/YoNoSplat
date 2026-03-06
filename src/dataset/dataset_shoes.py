@@ -33,6 +33,8 @@ class DatasetShoesCfg(DatasetCfgCommon):
     skip_bad_shape: bool = True
     pose_norm_method: str = "max_pairwise_d"
     val_fraction: float = 0.1
+    train_background_mode: str = "random"
+    eval_background_mode: str = "white"
 
 
 @dataclass
@@ -110,6 +112,15 @@ class DatasetShoes(Dataset):
             f"Stage={stage}: using {len(self.scenes)}/{total_scenes} shoes "
             f"(val_fraction={cfg.val_fraction})"
         )
+        self._validate_background_mode(cfg.train_background_mode)
+        self._validate_background_mode(cfg.eval_background_mode)
+
+    @staticmethod
+    def _validate_background_mode(mode: str) -> None:
+        if mode not in {"random", "white", "black"}:
+            raise ValueError(
+                f"Unsupported background mode '{mode}'. Expected random, white, or black."
+            )
 
     def _load_scene(self, shoe_dir: Path) -> ShoeScene | None:
         poses_path = shoe_dir / "poses.json"
@@ -200,33 +211,50 @@ class DatasetShoes(Dataset):
         self,
         scene: ShoeScene,
         indices: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Load images and alpha masks. Returns (images [v,3,H,W], masks [v,1,H,W])."""
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Load images and alpha masks. Returns (images, masks, foregrounds)."""
         images = []
         masks = []
+        foregrounds = []
         for index in indices.tolist():
             with Image.open(scene.views[index].image_path) as image:
-                if image.mode == "RGBA":
-                    rgba = self.to_tensor(image)           # [4, H, W]
-                    rgb = rgba[:3]                          # [3, H, W]
-                    alpha = rgba[3:4]                       # [1, H, W]
-                    # Composite on white background for network input
-                    rgb = rgb * alpha + (1.0 - alpha)
+                has_alpha = "A" in image.getbands() or "transparency" in image.info
+                if has_alpha:
+                    rgba = self.to_tensor(image.convert("RGBA"))
+                    foreground = rgba[:3]
+                    alpha = rgba[3:4]
+                    background = self._sample_background(foreground)
+                    rgb = foreground * alpha + background * (1.0 - alpha)
                     images.append(rgb)
                     masks.append(alpha)
+                    foregrounds.append(foreground)
                 else:
                     image_tensor = self.to_tensor(image.convert("RGB"))
                     images.append(image_tensor)
                     masks.append(torch.ones(1, image_tensor.shape[1], image_tensor.shape[2]))
+                    foregrounds.append(image_tensor)
         images = torch.stack(images)
         masks = torch.stack(masks)
+        foregrounds = torch.stack(foregrounds)
 
         expected_shape = (3, *self.cfg.original_image_shape)
         if self.cfg.skip_bad_shape and images.shape[1:] != expected_shape:
             raise ValueError(
                 f"Bad image shape for {scene.name}: expected {expected_shape}, got {tuple(images.shape[1:])}"
             )
-        return images, masks
+        return images, masks, foregrounds
+
+    def _sample_background(self, reference: torch.Tensor) -> torch.Tensor:
+        mode = (
+            self.cfg.train_background_mode
+            if self.stage == "train"
+            else self.cfg.eval_background_mode
+        )
+        if mode == "random":
+            return torch.rand((3, 1, 1), dtype=reference.dtype, device=reference.device)
+        if mode == "white":
+            return torch.ones((3, 1, 1), dtype=reference.dtype, device=reference.device)
+        return torch.zeros((3, 1, 1), dtype=reference.dtype, device=reference.device)
 
     def _build_example(
         self,
@@ -248,8 +276,14 @@ class DatasetShoes(Dataset):
         context_indices = context_indices.to(dtype=torch.long, device=torch.device("cpu"))
         target_indices = target_indices.to(dtype=torch.long, device=torch.device("cpu"))
 
-        context_images, context_masks = self._load_images(scene, context_indices)
-        target_images, target_masks = self._load_images(scene, target_indices)
+        context_images, context_masks, context_foregrounds = self._load_images(
+            scene,
+            context_indices,
+        )
+        target_images, target_masks, target_foregrounds = self._load_images(
+            scene,
+            target_indices,
+        )
 
         context_extrinsics = extrinsics[context_indices].clone()
         target_extrinsics = extrinsics[target_indices].clone()
@@ -276,6 +310,7 @@ class DatasetShoes(Dataset):
                 "extrinsics": all_used_extrinsics[:num_context_images],
                 "intrinsics": intrinsics[context_indices],
                 "image": context_images,
+                "foreground": context_foregrounds,
                 "mask": context_masks,
                 "near": self.get_bound("near", len(context_indices)) / scale,
                 "far": self.get_bound("far", len(context_indices)) / scale,
@@ -286,6 +321,7 @@ class DatasetShoes(Dataset):
                 "extrinsics": all_used_extrinsics[num_context_images:],
                 "intrinsics": intrinsics[target_indices],
                 "image": target_images,
+                "foreground": target_foregrounds,
                 "mask": target_masks,
                 "near": self.get_bound("near", len(target_indices)) / scale,
                 "far": self.get_bound("far", len(target_indices)) / scale,

@@ -16,6 +16,7 @@ from ..dataset.types import BatchedExample
 from ..misc.nn_module_tools import convert_to_buffer
 from ..model.decoder.decoder import DecoderOutput
 from ..model.types import Gaussians
+from .foreground_utils import get_supervised_images
 from .loss import Loss
 
 
@@ -127,16 +128,22 @@ class LossPerceptual(Loss[LossPerceptualCfg, LossPerceptualCfgWrapper]):
         extra_info: dict | None = None,
     ) -> Float[Tensor, ""]:
         if use_context:
-            target_img = batch["context"]["image"]
+            pred_img, target_img, _ = get_supervised_images(
+                batch["context"],
+                prediction.color,
+            )
         else:
-            target_img = batch["target"]["image"]
+            pred_img, target_img, _ = get_supervised_images(
+                batch["target"],
+                prediction.color,
+            )
 
         # Before the specified step, don't apply the loss.
         if global_step < self.cfg.apply_after_step:
             return torch.tensor(0, dtype=torch.float32, device=target_img.device)
 
         target_img = rearrange(target_img, "b v c h w -> (b v) c h w")
-        pred_img = rearrange(prediction.color, "b v c h w -> (b v) c h w")
+        pred_img = rearrange(pred_img, "b v c h w -> (b v) c h w")
 
         # Preprocess images
         target_img_p = self._preprocess_images(target_img)
