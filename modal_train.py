@@ -251,7 +251,8 @@ def main(
     print(f"  Experiment: {experiment}")
     print(f"  Resume: {resume_from or 'N/A'}")
 
-    train.remote(
+    # Use .spawn() so training runs detached from CLI — survives disconnect
+    call = train.spawn(
         max_steps=max_steps,
         batch_size=batch_size,
         num_workers=num_workers,
@@ -263,3 +264,6 @@ def main(
         lr=lr,
         experiment=experiment,
     )
+    print(f"\nTraining spawned (detached). Function call ID: {call.object_id}")
+    print(f"Monitor at: https://modal.com/apps/wearfits/main/")
+    print("You can safely close this terminal — training continues on Modal.")
