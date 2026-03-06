@@ -55,8 +55,15 @@ def export_ply(
     save_sh_dc_only: bool = True,
     covariances: Float[Tensor, "gaussian 3 3"] | None = None,
 ):
+    # Move everything to CPU first for consistency.
+    means = means.detach().cpu()
+    scales = scales.detach().cpu()
+    rotations = rotations.detach().cpu()
+    harmonics = harmonics.detach().cpu()
+    opacities = opacities.detach().cpu()
+
     if covariances is not None:
-        scales, rotations = covariance_to_scaling_rotation(covariances)
+        scales, rotations = covariance_to_scaling_rotation(covariances.detach().cpu())
 
     if shift_and_scale:
         # Shift the scene so that the median Gaussian is at the origin.
@@ -81,12 +88,12 @@ def export_ply(
     dtype_full = [(attribute, "f4") for attribute in construct_list_of_attributes(0 if save_sh_dc_only else f_rest.shape[1])]
     elements = np.empty(means.shape[0], dtype=dtype_full)
     attributes = [
-        means.detach().cpu().numpy(),
-        torch.zeros_like(means).detach().cpu().numpy(),
-        f_dc.detach().cpu().contiguous().numpy(),
-        f_rest.detach().cpu().contiguous().numpy(),
-        torch.logit(opacities.clamp(1e-6, 1 - 1e-6))[..., None].detach().cpu().numpy(),
-        scales.log().detach().cpu().numpy(),
+        means.numpy(),
+        torch.zeros_like(means).numpy(),
+        f_dc.contiguous().numpy(),
+        f_rest.contiguous().numpy(),
+        torch.logit(opacities.clamp(1e-6, 1 - 1e-6))[..., None].numpy(),
+        scales.log().numpy(),
         rotations,
     ]
     if save_sh_dc_only:
