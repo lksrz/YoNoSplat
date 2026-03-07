@@ -31,6 +31,7 @@ dataset:
     original_image_shape: [512, 512]
     relative_pose: false
     pose_norm_method: "none"
+    augment: false
     val_fraction: 0.05
     view_sampler:
       num_context_views: 2
