@@ -219,6 +219,7 @@ class ModelWrapper(LightningModule):
             batch["target"]["far"],
             (h, w),
             depth_mode=self.train_cfg.depth_mode,
+            bounds_radius=batch["context"].get("bounds_radius"),
         )
         target_gt = batch["target"]["image"]
         target_pred_for_metrics = self._composite_eval_background(
@@ -586,6 +587,7 @@ class ModelWrapper(LightningModule):
                         (h, w),
                         cam_rot_delta=cam_rot_delta,
                         cam_trans_delta=cam_trans_delta,
+                        bounds_radius=batch["context"].get("bounds_radius"),
                     )
 
                     # Compute and log loss.
@@ -1151,7 +1153,8 @@ class ModelWrapper(LightningModule):
         near = repeat(batch["context"]["near"][:, 0], "b -> b v", v=num_frames)
         far = repeat(batch["context"]["far"][:, 0], "b -> b v", v=num_frames)
         output = self.decoder.forward(
-            gaussians, extrinsics, intrinsics, near, far, (h, w), "depth"
+            gaussians, extrinsics, intrinsics, near, far, (h, w), "depth",
+            bounds_radius=batch["context"].get("bounds_radius"),
         )
         images = [
             vcat(rgb, depth)

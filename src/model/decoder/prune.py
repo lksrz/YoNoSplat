@@ -9,6 +9,7 @@ def prune_gaussians(
     prune_ratio: float,
     random_keep_ratio: float,
     inference: bool = False,
+    bounds_radius: float | torch.Tensor | None = None,
 ) -> Gaussians:
     """Prune the Gaussians to only include those that are visible in the image."""
     means = gaussians.means  # (B, G, 3)
@@ -16,6 +17,33 @@ def prune_gaussians(
 
     if means.shape[0] > 1:
         assert not inference, "Inference mode is not supported when bs > 1."
+
+    if bounds_radius is not None:
+        # Check if bounds_radius is a scalar float or a tensor.
+        if isinstance(bounds_radius, float) and bounds_radius <= 0.0:
+            pass # Skip pruning if the scalar is less than or equal to 0.0
+        else:
+            # Prepare bounds_radius to match the batch size: [B, 1]
+            if isinstance(bounds_radius, float):
+                bounds = torch.tensor(bounds_radius, device=means.device, dtype=means.dtype)
+                bounds = bounds.view(1, 1).expand(means.shape[0], 1)
+            else:
+                bounds = bounds_radius.to(device=means.device, dtype=means.dtype).view(means.shape[0], 1)
+                
+            # Zero out opacities outside the spherical boundary
+            radii = torch.norm(means, dim=-1) # (B, G)
+            mask_in_bounds = (radii <= bounds).float() # (B, G)
+            opacities = opacities * mask_in_bounds
+
+            # Replace opacities in the named tuple
+            gaussians = Gaussians(
+                means=gaussians.means,
+                covariances=gaussians.covariances,
+                harmonics=gaussians.harmonics,
+                opacities=opacities,
+                rotations=gaussians.rotations,
+                scales=gaussians.scales,
+            )
 
     if inference and opacity_threshold > 0:
         # Inference mode: prune based on opacity threshold

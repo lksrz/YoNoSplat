@@ -1,6 +1,6 @@
-# YoNoSplat - Shoe Fine-tuning
+# WEARFITS Splat - YoNoSplat Shoe Fine-tuning
 
-Fork of [cvg/YoNoSplat](https://github.com/cvg/YoNoSplat) adapted for multi-view shoe reconstruction from Blender renders.
+Based on [cvg/YoNoSplat](https://github.com/cvg/YoNoSplat) and adapted for multi-view, model-centric 3D shoe reconstruction from 3D renders.
 
 ## Resources
 - Original repo: https://github.com/cvg/YoNoSplat
@@ -19,6 +19,8 @@ Fork of [cvg/YoNoSplat](https://github.com/cvg/YoNoSplat) adapted for multi-view
   - fixed background for validation and inference,
   - foreground-only supervision for `mse`, `lpips`, and `perceptual` losses,
   - silhouette supervision from rendered alpha vs. target mask.
+- Disabled internal camera normalization shifting to fully accommodate model-centric objects at the origin `(0, 0, 0)`.
+- Implemented bounds radius pruning for the decoder to eliminate floating Gaussians and fog.
 - Fixed `.ply` export so Gaussian viewers such as SuperSplat receive world-space orientation and viewer-friendly opacity values.
 
 ## Current Recommended Workflow
@@ -46,6 +48,9 @@ This section is the short state summary for the next session.
   - eval/inference prune threshold was raised to `0.03`,
   - val/test/infer previews now composite predictions with the batch background instead of leaving decoder-black backgrounds,
   - `.ply` export in inference paths now filters low-opacity Gaussians more aggressively.
+- a model-centric bounds pruning package was added to anchor generated objects correctly:
+  - disabled `relative_pose` dynamically shifting the origin towards the camera,
+  - mathematical pruning of Gaussians generated outside a spherical `bounds_radius` parameter (set to `175.0`).
 
 ### What was observed before the anti-fog package
 - Modal smoke tests at `100` steps and `5000` steps were stable.
@@ -57,7 +62,7 @@ This section is the short state summary for the next session.
 
 ### Current status
 - The pre-silhouette run should not be resumed for the real long training.
-- The new anti-fog package is implemented and committed, but it has not yet been smoke-tested on GPU.
+- The new anti-fog package is implemented and committed.
 - The next meaningful run should start fresh from pretrained `dl3dv`, not from the foggy checkpoint.
 
 ### Next recommended step
@@ -289,6 +294,8 @@ Defaults:
 - default losses: `mse`, `lpips`, `silhouette`, `opacity`, `intrinsic`, `pose`
 - eval / inference prune threshold: `0.03`
 - shoe opacity regularization weight: `0.05`
+- camera coordinate shift / normalization: disabled (`pose_norm_method: "none"`)
+- decoder boundary pruning radius: `175.0` units
 
 Sampler defaults:
 - context separation: `20-60` degrees
@@ -317,3 +324,7 @@ Validated on March 6, 2026:
 ## Related Docs
 - [DATASETS.md](DATASETS.md)
 - [EVALUATION.md](EVALUATION.md)
+
+## License
+
+See [LICENSE.md](LICENSE.md) for details.

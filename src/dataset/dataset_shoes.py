@@ -299,6 +299,13 @@ class DatasetShoes(Dataset):
             )
         all_used_extrinsics[:, :3, 3] /= scale
 
+        # Calculate max bounds radius based on camera positions
+        # Blender and OpenCV have the same origin distance
+        camera_positions = all_used_extrinsics[:, :3, 3]
+        max_dist = torch.norm(camera_positions, dim=-1).max()
+        # Use exact max camera distance as bounds limit
+        dynamic_bounds_radius = max_dist
+
         if self.cfg.relative_pose:
             all_used_extrinsics = camera_normalization(
                 all_used_extrinsics[0:1],
@@ -316,6 +323,7 @@ class DatasetShoes(Dataset):
                 "far": self.get_bound("far", len(context_indices)) / scale,
                 "index": context_indices,
                 "overlap": overlap.cpu(),
+                "bounds_radius": dynamic_bounds_radius.unsqueeze(0).expand(len(context_indices)),
             },
             "target": {
                 "extrinsics": all_used_extrinsics[num_context_images:],

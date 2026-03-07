@@ -23,6 +23,7 @@ class BatchedViews(TypedDict, total=False):
     far: Float[Tensor, "batch _"]  # batch view
     index: Int64[Tensor, "batch _"]  # batch view
     overlap: Float[Tensor, "batch _"]  # batch view
+    bounds_radius: Float[Tensor, "batch _"]  # batch view
 
 
 class BatchedExample(TypedDict, total=False):

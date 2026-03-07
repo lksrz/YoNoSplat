@@ -23,12 +23,14 @@ model:
   decoder:
     make_scale_invariant: true
     prune_opacity_threshold: 0.03
+    bounds_radius: 1.5
 
 dataset:
   shoes:
     input_image_shape: [224, 224]
     original_image_shape: [512, 512]
-    pose_norm_method: max_pairwise_d
+    relative_pose: false
+    pose_norm_method: "none"
     val_fraction: 0.05
     view_sampler:
       num_context_views: 2

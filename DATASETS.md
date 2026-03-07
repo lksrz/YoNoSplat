@@ -112,3 +112,9 @@ If the images contain alpha:
 - `mse`, `lpips`, and `perceptual` supervision operate on the alpha-masked foreground instead of the synthetic background.
 
 This is the recommended format for shoe training because it prevents the model from learning a fixed studio background as part of the 3D scene.
+
+### Model-Centric Configuration
+
+The dataset pipeline has been updated to support model-centric datasets perfectly.
+- Set `dataset.shoes.relative_pose=false` and `dataset.shoes.pose_norm_method="none"` to disable dynamic camera origin shifting and scale normalization. The model will assume that the shoe center is always `(0, 0, 0)`.
+- Enforce bounds limitations with `model.decoder.bounds_radius=175.0` (or appropriate maximum distance to origin based on Blender Units) to eliminate floating Gaussians and "fog" generation outside the physical bounds of the object.

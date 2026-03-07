@@ -20,6 +20,7 @@ class DecoderSplattingCUDACfg:
     prune_opacity_threshold: float = 0.005
     training_prune_ratio: float = 0.
     training_prune_keep_ratio: float = 0.1
+    bounds_radius: float = -1.0
 
 
 class DecoderSplattingCUDA(Decoder[DecoderSplattingCUDACfg]):
@@ -48,9 +49,17 @@ class DecoderSplattingCUDA(Decoder[DecoderSplattingCUDACfg]):
         depth_mode: DepthRenderingMode | None = None,
         cam_rot_delta: Float[Tensor, "batch view 3"] | None = None,
         cam_trans_delta: Float[Tensor, "batch view 3"] | None = None,
+        bounds_radius: Float[Tensor, "batch view"] | float | None = None,
     ) -> DecoderOutput:
         b, v, _, _ = extrinsics.shape
-        gaussians = prune_gaussians(gaussians, self.cfg.prune_opacity_threshold, self.cfg.training_prune_ratio, self.cfg.training_prune_keep_ratio, inference=not self.training)
+        gaussians = prune_gaussians(
+            gaussians,
+            self.cfg.prune_opacity_threshold,
+            self.cfg.training_prune_ratio,
+            self.cfg.training_prune_keep_ratio,
+            inference=not self.training,
+            bounds_radius=bounds_radius if bounds_radius is not None else self.cfg.bounds_radius,
+        )
         color, depth, alpha = render_cuda(
             rearrange(extrinsics, "b v i j -> (b v) i j"),
             rearrange(intrinsics, "b v i j -> (b v) i j"),
