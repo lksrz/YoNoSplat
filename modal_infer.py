@@ -79,6 +79,7 @@ def infer(
     data_root: str = "/data",
     export_ply_flag: bool = True,
     use_gt_poses: bool = True,
+    experiment: str = "shoes_224_finetune",
 ):
     """
     Run inference: load checkpoint, encode context views of `shoe_name`,
@@ -115,7 +116,7 @@ def infer(
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir="/opt/YoNoSplat/config", job_name="infer"):
         cfg = compose(config_name="main", overrides=[
-            "+experiment=shoes_224_finetune",
+            f"+experiment={experiment}",
             f"dataset.shoes.roots=[{data_root}]",
             f"dataset.shoes.view_sampler.num_context_views={num_context_views}",
             "dataset.shoes.view_sampler.num_target_views=1",
@@ -420,6 +421,7 @@ def main(
     data_root: str = "/data",
     export_ply: bool = True,
     use_gt_poses: bool = True,
+    experiment: str = "shoes_224_finetune",
 ):
     if not shoe_name:
         raise ValueError("--shoe-name is required. Provide a shoe directory name from the dataset volume.")
@@ -432,6 +434,7 @@ def main(
     print(f"  data_root  : {data_root}")
     print(f"  export_ply : {export_ply}")
     print(f"  use_gt_poses: {use_gt_poses}")
+    print(f"  experiment : {experiment}")
     print()
 
     saved = infer.remote(
@@ -442,5 +445,6 @@ def main(
         data_root=data_root,
         export_ply_flag=export_ply,
         use_gt_poses=use_gt_poses,
+        experiment=experiment,
     )
     print(f"Saved renders: {saved}")
