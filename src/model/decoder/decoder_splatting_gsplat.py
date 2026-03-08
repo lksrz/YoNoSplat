@@ -51,7 +51,7 @@ class DecoderSplattingGSPlat(Decoder[DecoderSplattingSplatCfg]):
             depth_mode: DepthRenderingMode | None = None,
             cam_rot_delta: Float[Tensor, "batch view 3"] | None = None,
             cam_trans_delta: Float[Tensor, "batch view 3"] | None = None,
-            bounds_radius: Float[Tensor, "batch view"] | float | None = None,
+            bounds_radius: Tensor | float | None = None,
     ) -> DecoderOutput:
         gaussians = prune_gaussians(
             gaussians,
