@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(MODAL_PROFILE=wearfits modal run:*)",
+      "Bash(MODAL_PROFILE=wearfits modal app:*)",
+      "Bash(git remote:*)"
+    ]
+  }
+}
