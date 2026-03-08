@@ -160,7 +160,7 @@ def train(
         "checkpointing.save_weights_only=false",
         "checkpointing.every_n_train_steps=500",
     ]
-    if lr is not None and resume_from is None:
+    if lr is not None:
         overrides.append(f"optimizer.lr={lr}")
 
     # Add pretrained weights config
@@ -170,7 +170,7 @@ def train(
         overrides.append(f"model.encoder.pretrained_weights={pretrained_backbone}")
     
     if resume_from:
-        overrides.append(f"checkpointing.load={resume_from}")
+        overrides.append(f"checkpointing.load='{resume_from}'")
 
     cmd = [
         "python", "-u", "-m", "src.main",
