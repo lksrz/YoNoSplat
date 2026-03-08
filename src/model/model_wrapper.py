@@ -158,6 +158,16 @@ class ModelWrapper(LightningModule):
         self.low_opa_ratio = []
 
     @staticmethod
+    def _get_bounds_radius(batch):
+        """Extract per-batch bounds_radius scalar from context.
+        bounds_radius is stored as [B, ctx_views] but is the same value
+        across views (max camera distance), so we take [:, 0] to get [B]."""
+        br = batch["context"].get("bounds_radius")
+        if br is not None and br.dim() > 1:
+            return br[:, 0]
+        return br
+
+    @staticmethod
     def _composite_eval_background(
         color: Tensor,
         alpha: Tensor | None,
@@ -219,7 +229,7 @@ class ModelWrapper(LightningModule):
             batch["target"]["far"],
             (h, w),
             depth_mode=self.train_cfg.depth_mode,
-            bounds_radius=batch["context"].get("bounds_radius"),
+            bounds_radius=self._get_bounds_radius(batch),
         )
         target_gt = batch["target"]["image"]
         target_pred_for_metrics = self._composite_eval_background(
@@ -587,7 +597,7 @@ class ModelWrapper(LightningModule):
                         (h, w),
                         cam_rot_delta=cam_rot_delta,
                         cam_trans_delta=cam_trans_delta,
-                        bounds_radius=batch["context"].get("bounds_radius"),
+                        bounds_radius=self._get_bounds_radius(batch),
                     )
 
                     # Compute and log loss.
@@ -1154,7 +1164,7 @@ class ModelWrapper(LightningModule):
         far = repeat(batch["context"]["far"][:, 0], "b -> b v", v=num_frames)
         output = self.decoder.forward(
             gaussians, extrinsics, intrinsics, near, far, (h, w), "depth",
-            bounds_radius=batch["context"].get("bounds_radius"),
+            bounds_radius=self._get_bounds_radius(batch),
         )
         images = [
             vcat(rgb, depth)
