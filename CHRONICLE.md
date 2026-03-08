@@ -147,3 +147,69 @@ Pi3 backbone provides good visual features but point/gaussian/camera decoders st
 Check both runs at ~20-30k steps to see which direction is better.
 If v2 (DL3DV finetune) converges faster, continue with that approach.
 If scratch produces cleaner geometry, the domain shift was the core problem.
+
+---
+
+## Run 2 & 2b Results — Both FAILED (2026-03-08)
+
+### What Happened
+
+Both runs were killed by the **loss filter** (`train_ignore_large_loss_mse`) after step 20,000.
+
+The filter thresholds inherited from `main.yaml` defaults were calibrated for DL3DV/RE10K:
+- `train_ignore_large_loss_mse: 0.06` — skips samples where MSE loss > 0.06
+- `train_ignore_large_loss: 0.2` — skips samples where total loss > 0.2
+- `train_ignore_large_loss_pose: 1.0`
+
+For shoes, typical MSE loss is 0.08–0.20 (much higher than DL3DV's 0.01–0.05).
+After step 20k, the filter skipped **every single sample** → model stopped learning.
+
+### Run 2 (finetune v2) — Additional Issue: Gradient Explosion
+
+LR=2e-4 was too aggressive for finetuning. Loss trajectory:
+- Steps 0–6870: oscillating loss (0.03–0.28) with frequent spikes to ~15.5 but recovering
+- **Step 6880: permanent collapse** — loss locked at ~15.5, never recovered
+- Steps 7000–20000: loss ~15.5 constantly (model producing garbage)
+- Steps 20000+: filter kicked in, skipping everything → completely dead
+
+Spike frequency by 1k-step range: 0k=6, 1k=7, 2k=4, 3k=1, 4k=5, 5k=12, 6k=14, 7k+=100% spikes
+
+### Run 2b (scratch) — Was Training Well
+
+Loss trajectory (avg per 1k steps):
+- 0k: 2.40, 1k: 0.68, 5k: 0.26, 10k: 0.19, 15k: 0.15, 19k: **0.14** ← healthy convergence
+- **Step 20000: filter kicks in** → avg jumps to 2.9, then 9.7, then 12+ (all skipped)
+
+No spikes > 1.0 after initial convergence. This was a healthy training killed by misconfigured filter.
+
+### Saved Checkpoints
+
+Both runs have checkpoints every 500 steps on Modal volume `yonosplat-checkpoints`:
+- **Finetune v2:** `/outputs/exp_shoes_224_finetune_v2/2026-03-08_09-34-46/checkpoints/`
+  - Best before collapse: `epoch=10-step=6500.ckpt`
+- **Scratch v1:** `/outputs/exp_shoes_224_scratch/2026-03-08_09-39-44/checkpoints/`
+  - Best (last healthy): `epoch=31-step=19500.ckpt`
+
+---
+
+## Run 3 — Resume with Fixed Filters (2026-03-08)
+
+### Run 3a: Finetune v3 (resume from v2 step 6500)
+
+**Config:** `shoes_224_finetune.yaml` (v3)
+**Resume from:** v2 checkpoint `epoch=10-step=6500.ckpt`
+
+Key changes from v2:
+| Parameter | v2 | v3 | Rationale |
+|-----------|----|----|-----------|
+| Learning rate | 2e-4 | **5e-5** | Prevent gradient explosion |
+| train_ignore_large_loss | 0.2 (default) | **5.0** | Only filter genuine explosions |
+| train_ignore_large_loss_mse | 0.06 (default) | **1.0** | Shoe MSE is 0.08–0.20 normally |
+| train_ignore_large_loss_pose | 1.0 (default) | **5.0** | Only filter explosions |
+
+### Run 3b: Scratch v2 (resume from v1 step 19500)
+
+**Config:** `shoes_224_scratch.yaml` (v2)
+**Resume from:** v1 checkpoint `epoch=31-step=19500.ckpt`
+
+Only change: same filter threshold fix as finetune v3. LR unchanged (1e-4 was working well).

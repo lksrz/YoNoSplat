@@ -5,14 +5,12 @@
 # │  Copy to shoes_224_finetune_vN.yaml (increment N) before changes.  │
 # │  Log changes in CHRONICLE.md at the project root.                  │
 # │                                                                     │
-# │  Current version: v3 (2026-03-08)                                  │
-# │  Previous: shoes_224_finetune_v2.yaml                              │
+# │  Current version: v2 (2026-03-08)                                  │
+# │  Previous: shoes_224_finetune_v1.yaml                              │
 # │                                                                     │
 # │  v1: First training — LR 1e-5, 2 ctx views, no pose norm. FAILED. │
-# │  v2: LR 2e-4, 6 ctx, max_pairwise_d. Gradient explosion at step   │
-# │      6880 (permanent collapse to loss ~15.5). FAILED.              │
-# │  v3: Lower LR 5e-5, raise loss filter thresholds to prevent        │
-# │      false-positive skipping. Resume from v2 step 6500.            │
+# │  v2: Aggressive fixes — LR 2e-4, 6 ctx, max_pairwise_d,           │
+# │      relative_pose, strong anti-fog losses.                         │
 # └──────────────────────────────────────────────────────────────────────┘
 
 defaults:
@@ -22,8 +20,8 @@ defaults:
   - override /loss: [mse, lpips, silhouette, opacity, intrinsic, pose]
 
 wandb:
-  name: shoes_224_finetune_v3
-  tags: [shoes, 224x224, v3]
+  name: shoes_224_finetune_v2
+  tags: [shoes, 224x224, v2]
 
 model:
   encoder:
@@ -62,8 +60,8 @@ dataset:
       max_img_per_gpu: 8
 
 optimizer:
-  # v3: lowered from 2e-4 (caused gradient explosion at step 6880)
-  lr: 5e-5
+  # Match DL3DV pretrained LR — aggressive to force domain adaptation
+  lr: 2e-4
   warm_up_steps: 1000
   backbone_lr_multiplier: 0.1
 
@@ -90,11 +88,6 @@ train:
   eval_data_length: 200
   eval_time_skip_steps: 3
   train_ignore_large_loss_after_steps: 20000
-  # v3: raise thresholds — defaults (0.06 MSE, 0.2 total) are calibrated
-  # for DL3DV and were skipping ALL shoe samples after step 20k
-  train_ignore_large_loss: 5.0
-  train_ignore_large_loss_mse: 1.0
-  train_ignore_large_loss_pose: 5.0
 
 checkpointing:
   every_n_train_steps: 500

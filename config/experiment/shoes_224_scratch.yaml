@@ -5,9 +5,12 @@
 # │  Copy to shoes_224_scratch_vN.yaml (increment N) before changes.   │
 # │  Log changes in CHRONICLE.md at the project root.                  │
 # │                                                                     │
-# │  Current version: v1 (2026-03-08)                                  │
+# │  Current version: v2 (2026-03-08)                                  │
+# │  Previous: shoes_224_scratch_v1.yaml                               │
 # │                                                                     │
-# │  v1: Train from Pi3 backbone only, model-centric (no DL3DV bias).  │
+# │  v1: Train from Pi3 backbone only, model-centric. Killed at step   │
+# │      20k by MSE filter (threshold 0.06 too low for shoes).         │
+# │  v2: Raise loss filter thresholds. Resume from v1 step 19500.      │
 # └──────────────────────────────────────────────────────────────────────┘
 
 defaults:
@@ -18,7 +21,7 @@ defaults:
 
 wandb:
   name: shoes_224_scratch
-  tags: [shoes, 224x224, scratch, pi3]
+  tags: [shoes, 224x224, scratch, pi3, v2]
 
 model:
   encoder:
@@ -84,6 +87,11 @@ train:
   eval_data_length: 200
   eval_time_skip_steps: 3
   train_ignore_large_loss_after_steps: 20000
+  # v2: raise thresholds — defaults (0.06 MSE, 0.2 total) killed training
+  # at step 20k by skipping ALL samples. Set high to only catch explosions.
+  train_ignore_large_loss: 5.0
+  train_ignore_large_loss_mse: 1.0
+  train_ignore_large_loss_pose: 5.0
 
 checkpointing:
   every_n_train_steps: 500

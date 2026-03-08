@@ -2,17 +2,12 @@
 #
 # ┌──────────────────────────────────────────────────────────────────────┐
 # │  VERSIONING RULE: Always create a backup before modifying this file │
-# │  Copy to shoes_224_finetune_vN.yaml (increment N) before changes.  │
+# │  Copy to shoes_224_scratch_vN.yaml (increment N) before changes.   │
 # │  Log changes in CHRONICLE.md at the project root.                  │
 # │                                                                     │
-# │  Current version: v3 (2026-03-08)                                  │
-# │  Previous: shoes_224_finetune_v2.yaml                              │
+# │  Current version: v1 (2026-03-08)                                  │
 # │                                                                     │
-# │  v1: First training — LR 1e-5, 2 ctx views, no pose norm. FAILED. │
-# │  v2: LR 2e-4, 6 ctx, max_pairwise_d. Gradient explosion at step   │
-# │      6880 (permanent collapse to loss ~15.5). FAILED.              │
-# │  v3: Lower LR 5e-5, raise loss filter thresholds to prevent        │
-# │      false-positive skipping. Resume from v2 step 6500.            │
+# │  v1: Train from Pi3 backbone only, model-centric (no DL3DV bias).  │
 # └──────────────────────────────────────────────────────────────────────┘
 
 defaults:
@@ -22,15 +17,15 @@ defaults:
   - override /loss: [mse, lpips, silhouette, opacity, intrinsic, pose]
 
 wandb:
-  name: shoes_224_finetune_v3
-  tags: [shoes, 224x224, v3]
+  name: shoes_224_scratch
+  tags: [shoes, 224x224, scratch, pi3]
 
 model:
   encoder:
     name: yonosplat
     pose_free: true
     pretrained_weights: ""
-    # Match DL3DV schedule: train with GT poses much longer before decay
+    # From scratch: start GT pose decay later, let model stabilize first
     gt_pose_sampling_decay_start_step: 80000
     gt_pose_sampling_decay_end_step: 100000
     gt_pose_final_sample_ratio: 0.9
@@ -45,9 +40,9 @@ dataset:
   shoes:
     input_image_shape: [224, 224]
     original_image_shape: [512, 512]
-    # Match DL3DV: use relative poses and scale normalization
-    relative_pose: true
-    pose_norm_method: "max_pairwise_d"
+    # Model-centric: object at origin, no relative pose shift
+    relative_pose: false
+    pose_norm_method: "none"
     augment: false
     val_fraction: 0.05
     view_sampler:
@@ -62,16 +57,15 @@ dataset:
       max_img_per_gpu: 8
 
 optimizer:
-  # v3: lowered from 2e-4 (caused gradient explosion at step 6880)
-  lr: 5e-5
-  warm_up_steps: 1000
+  # Higher LR for training from scratch
+  lr: 1e-4
+  warm_up_steps: 2000
   backbone_lr_multiplier: 0.1
 
 data_loader:
   train:
     num_workers: 4
     persistent_workers: true
-    # batch_size 1 with 6 context views to fit A100-80GB (same as DL3DV)
     batch_size: 1
   val:
     num_workers: 0
@@ -90,11 +84,6 @@ train:
   eval_data_length: 200
   eval_time_skip_steps: 3
   train_ignore_large_loss_after_steps: 20000
-  # v3: raise thresholds — defaults (0.06 MSE, 0.2 total) are calibrated
-  # for DL3DV and were skipping ALL shoe samples after step 20k
-  train_ignore_large_loss: 5.0
-  train_ignore_large_loss_mse: 1.0
-  train_ignore_large_loss_pose: 5.0
 
 checkpointing:
   every_n_train_steps: 500
