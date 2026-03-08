@@ -46,7 +46,7 @@ yonosplat_image = (
         gpu="A100",
     )
     .run_commands(
-        "git clone https://github.com/lksrz/YoNoSplat.git /opt/YoNoSplat",
+        "git clone https://github.com/WEARFITS/wearfits-splat.git /opt/YoNoSplat",
         "mkdir -p /opt/YoNoSplat/pretrained_weights",
         "wget -q -O /opt/YoNoSplat/pretrained_weights/pi3.safetensors "
         "https://huggingface.co/yyfz233/Pi3/resolve/main/model.safetensors",
