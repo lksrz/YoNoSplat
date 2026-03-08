@@ -18,10 +18,10 @@ yonosplat_image = (
         "pytorch/pytorch:2.4.0-cuda12.1-cudnn9-devel",
         add_python="3.10",
     )
-    .env({"TORCH_CUDA_ARCH_LIST": "8.0"})
+    .env({"TORCH_CUDA_ARCH_LIST": "8.0;8.9"})
     .env({
         "DEBIAN_FRONTEND": "noninteractive",
-        "TORCH_CUDA_ARCH_LIST": "8.0",
+        "TORCH_CUDA_ARCH_LIST": "8.0;8.9",
     })
     .apt_install("git", "ninja-build", "wget", "libgl1-mesa-glx", "libglib2.0-0")
     .run_commands(
@@ -65,7 +65,7 @@ weights_vol = modal.Volume.from_name("yonosplat-weights", create_if_missing=True
 
 
 @app.function(
-    gpu="A100-80GB",
+    gpu="L40S",
     volumes={
         "/data": dataset_vol,
         "/checkpoints": checkpoints_vol,
