@@ -75,15 +75,15 @@ weights_vol = modal.Volume.from_name("yonosplat-weights", create_if_missing=True
 
 )
 def train(
-    max_steps: int = 50000,
+    max_steps: int = 150000,
     batch_size: int = 4,
     num_workers: int = 4,
-    num_context_views: int = 2,
+    num_context_views: int = 6,
     num_target_views: int = 1,
     resume_from: str = None,
     wandb_key: str = None,
     finetune: str = "dl3dv",  # "re10k", "dl3dv", "pi3", or "none"
-    lr: float = None,  # learning rate (default: 1e-5 for finetune, 1e-4 for scratch)
+    lr: float = None,  # learning rate (default: 2e-4 for finetune, 1e-4 for scratch)
     experiment: str = "shoes_224_finetune",
 ):
     import subprocess
@@ -139,9 +139,9 @@ def train(
     else:
         print("Training from scratch (no pretrained weights)")
 
-    # Default learning rates
+    # Default learning rates (v2: match pretrained LR for aggressive domain adaptation)
     if lr is None and resume_from is None:
-        lr = 1e-5 if finetune_ckpt else 1e-4
+        lr = 2e-4 if finetune_ckpt else 1e-4
     print(f"Learning rate: {lr if lr is not None else 'resume checkpoint state'}")
     max_img_per_gpu = max(1, batch_size * max(1, num_context_views))
     print(f"Mixed sampler max_img_per_gpu: {max_img_per_gpu}")

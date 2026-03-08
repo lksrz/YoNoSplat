@@ -9,6 +9,9 @@ Usage:
       --ckpt-path /checkpoints/outputs/last.ckpt \
       --shoe-name SHOE_ID
 
+  Use --use-gt-poses to use ground-truth camera poses instead of predicted ones.
+  This is recommended until pose prediction has converged (especially after fine-tuning).
+
 Camera convention: c2w OpenCV (+X right, +Y down, +Z forward), normalised intrinsics.
 """
 
@@ -75,11 +78,17 @@ def infer(
     num_novel_views: int = 4,
     data_root: str = "/data",
     export_ply_flag: bool = True,
+    use_gt_poses: bool = True,
 ):
     """
     Run inference: load checkpoint, encode context views of `shoe_name`,
     render `num_novel_views` novel views at evenly-spaced azimuth angles,
     and save PNGs to /checkpoints/infer_outputs/<shoe_name>/.
+
+    Args:
+        use_gt_poses: If True, use ground-truth camera extrinsics from the
+            dataset instead of the encoder's predicted poses. Recommended
+            until pose prediction has converged.
     """
     import json
     import math
@@ -156,6 +165,7 @@ def infer(
     print(
         f"Model loaded. missing_keys={len(missing_keys)}, unexpected_keys={len(unexpected_keys)}"
     )
+    print(f"Pose mode: {'GT extrinsics' if use_gt_poses else 'predicted poses'}")
 
     # ------------------------------------------------------------------
     # Load shoe data
@@ -227,9 +237,11 @@ def infer(
     context_extrinsics = torch.stack(ctx_ext)  # (V, 4, 4)
     context_intrinsics = torch.stack(ctx_intr)
 
+    # Apply same pose normalization as training
     scale = compute_pose_norm_scale(context_extrinsics, shoes_cfg.pose_norm_method)
     scale = float(scale if isinstance(scale, (int, float)) else scale.item())
     scale = max(scale, 1e-6)
+    print(f"Pose norm scale ({shoes_cfg.pose_norm_method}): {scale:.4f}")
     context_extrinsics[:, :3, 3] /= scale
     if shoes_cfg.relative_pose:
         context_extrinsics = camera_normalization(context_extrinsics[0:1], context_extrinsics)
@@ -251,6 +263,10 @@ def infer(
         "far": (torch.tensor([[100.0] * len(ctx_indices)]) / scale).to(device),   # (1, V)
         "index": torch.tensor([ctx_indices]).to(device),                 # (1, V)
     }
+
+    # Signal the encoder to use GT extrinsics instead of predicted poses
+    if use_gt_poses:
+        context_batch["use_gt_extrinsics"] = True
 
     # ------------------------------------------------------------------
     # Encode context → Gaussians
@@ -360,16 +376,20 @@ def infer(
     if export_ply_flag:
         from src.model.ply_export import export_ply as save_ply
         from pathlib import Path
-        
+
         ply_path = os.path.join(out_dir, "shoe.ply")
         print(f"Exporting .ply to {ply_path} ...")
-        export_threshold = max(float(model.decoder.prune_opacity_threshold), 0.03)
+        export_threshold = max(float(model.decoder.cfg.prune_opacity_threshold), 0.1)
         export_mask = gaussians.opacities[0] > export_threshold
         if not export_mask.any():
             topk = min(4096, gaussians.opacities.shape[1])
             export_indices = gaussians.opacities[0].topk(topk).indices
             export_mask = torch.zeros_like(gaussians.opacities[0], dtype=torch.bool)
             export_mask[export_indices] = True
+
+        num_exported = export_mask.sum().item()
+        num_total = gaussians.opacities.shape[1]
+        print(f"  Exporting {num_exported}/{num_total} Gaussians (threshold={export_threshold:.2f})")
 
         save_ply(
             gaussians.means[0][export_mask],
@@ -399,6 +419,7 @@ def main(
     num_novel_views: int = 4,
     data_root: str = "/data",
     export_ply: bool = True,
+    use_gt_poses: bool = True,
 ):
     if not shoe_name:
         raise ValueError("--shoe-name is required. Provide a shoe directory name from the dataset volume.")
@@ -410,6 +431,7 @@ def main(
     print(f"  novel      : {num_novel_views} views")
     print(f"  data_root  : {data_root}")
     print(f"  export_ply : {export_ply}")
+    print(f"  use_gt_poses: {use_gt_poses}")
     print()
 
     saved = infer.remote(
@@ -419,5 +441,6 @@ def main(
         num_novel_views=num_novel_views,
         data_root=data_root,
         export_ply_flag=export_ply,
+        use_gt_poses=use_gt_poses,
     )
     print(f"Saved renders: {saved}")

@@ -2,15 +2,12 @@
 #
 # ┌──────────────────────────────────────────────────────────────────────┐
 # │  VERSIONING RULE: Always create a backup before modifying this file │
-# │  Copy to shoes_224_finetune_vN.yaml (increment N) before changes.  │
+# │  Copy to shoes_224_scratch_vN.yaml (increment N) before changes.   │
 # │  Log changes in CHRONICLE.md at the project root.                  │
 # │                                                                     │
-# │  Current version: v2 (2026-03-08)                                  │
-# │  Previous: shoes_224_finetune_v1.yaml                              │
+# │  Current version: v1 (2026-03-08)                                  │
 # │                                                                     │
-# │  v1: First training — LR 1e-5, 2 ctx views, no pose norm. FAILED. │
-# │  v2: Aggressive fixes — LR 2e-4, 6 ctx, max_pairwise_d,           │
-# │      relative_pose, strong anti-fog losses.                         │
+# │  v1: Train from Pi3 backbone only, model-centric (no DL3DV bias).  │
 # └──────────────────────────────────────────────────────────────────────┘
 
 defaults:
@@ -20,15 +17,15 @@ defaults:
   - override /loss: [mse, lpips, silhouette, opacity, intrinsic, pose]
 
 wandb:
-  name: shoes_224_finetune_v2
-  tags: [shoes, 224x224, v2]
+  name: shoes_224_scratch
+  tags: [shoes, 224x224, scratch, pi3]
 
 model:
   encoder:
     name: yonosplat
     pose_free: true
     pretrained_weights: ""
-    # Match DL3DV schedule: train with GT poses much longer before decay
+    # From scratch: start GT pose decay later, let model stabilize first
     gt_pose_sampling_decay_start_step: 80000
     gt_pose_sampling_decay_end_step: 100000
     gt_pose_final_sample_ratio: 0.9
@@ -43,9 +40,9 @@ dataset:
   shoes:
     input_image_shape: [224, 224]
     original_image_shape: [512, 512]
-    # Match DL3DV: use relative poses and scale normalization
-    relative_pose: true
-    pose_norm_method: "max_pairwise_d"
+    # Model-centric: object at origin, no relative pose shift
+    relative_pose: false
+    pose_norm_method: "none"
     augment: false
     val_fraction: 0.05
     view_sampler:
@@ -60,16 +57,15 @@ dataset:
       max_img_per_gpu: 8
 
 optimizer:
-  # Match DL3DV pretrained LR — aggressive to force domain adaptation
-  lr: 2e-4
-  warm_up_steps: 1000
+  # Higher LR for training from scratch
+  lr: 1e-4
+  warm_up_steps: 2000
   backbone_lr_multiplier: 0.1
 
 data_loader:
   train:
     num_workers: 4
     persistent_workers: true
-    # batch_size 1 with 6 context views to fit A100-80GB (same as DL3DV)
     batch_size: 1
   val:
     num_workers: 0

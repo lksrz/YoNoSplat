@@ -261,7 +261,12 @@ class EncoderYoNoSplat(Encoder[EncoderYoNoSplatCfg]):
                 else:
                     c2w = camera_poses
             else:
-                c2w = camera_poses
+                # At inference, use GT extrinsics if explicitly requested
+                # (predicted poses may not have converged, especially after fine-tuning)
+                if context.get('use_gt_extrinsics', False):
+                    c2w = context['extrinsics']
+                else:
+                    c2w = camera_poses
         else:
             c2w = context['extrinsics']
 

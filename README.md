@@ -324,6 +324,7 @@ Validated on March 6, 2026:
 ## Related Docs
 - [DATASETS.md](DATASETS.md)
 - [EVALUATION.md](EVALUATION.md)
+- [CHRONICLE.md](CHRONICLE.md)
 
 ## License
 
