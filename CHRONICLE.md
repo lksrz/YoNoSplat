@@ -19,9 +19,9 @@ Training history and observations log for shoe Gaussian splatting model.
 | Context views | 2 |
 | Target views | 1 |
 | Image resolution | 224×224 |
-| pose_norm_method | `"none"` (scale=1.0, raw Blender coords) |
-| relative_pose | `false` |
-| augment | `false` |
+| pose_norm_method | `"max_pairwise_d"` (inherited from shoes base config) |
+| relative_pose | `true` (inherited from shoes base config) |
+| augment | `true` (inherited from shoes base config) |
 | Silhouette loss weight | 0.1 |
 | Opacity loss weight | 0.05 |
 | LPIPS weight | 0.05 |
@@ -47,12 +47,11 @@ Training history and observations log for shoe Gaussian splatting model.
 - **No color:** Model outputs near-zero SH coefficients, no meaningful color information.
 
 ### Root Cause Analysis
-1. **Coordinate frame mismatch at inference:** Encoder uses predicted poses (eval mode always uses predicted), but novel cameras are in GT frame. Predicted poses are normalized relative to view0 (identity), GT cameras are in absolute Blender frame → total misalignment.
-2. **Learning rate too low for domain shift:** DL3DV pretrained at LR=2e-4, fine-tuned at LR=1e-5 (20× lower). With backbone LR=1e-6, features barely adapt to shoe domain in 50k steps.
-3. **No pose normalization:** DL3DV uses `max_pairwise_d` (normalizes camera baseline to ~1). Shoes use `"none"` (raw Blender coords, cameras at ~2-5 units). Model's depth predictions are calibrated for DL3DV scale → scale mismatch.
-4. **No relative pose:** DL3DV uses `relative_pose: true`. Shoes use `false`. Predicted poses are always view0-relative, but GT poses are absolute → frame inconsistency during training (10% predicted pose steps produce garbage).
-5. **Only 2 context views:** DL3DV uses 6. Far too little geometric information for reliable 3D reconstruction.
-6. **Weak anti-fog losses:** Silhouette=0.1, opacity=0.05 insufficient to suppress the fog/sphere artifact.
+1. **Coordinate frame mismatch at inference:** Encoder uses predicted poses (eval mode always uses predicted), but novel cameras are in GT frame. Predicted poses are normalized relative to view0 (identity), GT cameras are in absolute Blender frame → total misalignment. (**Fixed in v2 with `--use-gt-poses` flag.**)
+2. **Learning rate possibly too low for domain shift:** DL3DV pretrained at LR=2e-4, fine-tuned at LR=1e-5 (20× lower). However, Run 1 was perfectly stable at 1e-5 — the loss converged smoothly to 0.013. The issue was inference quality, not training convergence.
+3. ~~**No pose normalization / No relative pose:**~~ **CORRECTION:** Run 1 actually DID use `relative_pose: true` and `pose_norm_method: max_pairwise_d` (inherited from shoes base dataset config). These were NOT the problem.
+4. **Only 2 context views:** DL3DV uses 6. Far too little geometric information for reliable 3D reconstruction.
+5. **Weak anti-fog losses:** Silhouette=0.1, opacity=0.05 may have been insufficient to suppress the fog/sphere artifact at inference.
 
 ---
 
@@ -213,3 +212,54 @@ Key changes from v2:
 **Resume from:** v1 checkpoint `epoch=31-step=19500.ckpt`
 
 Only change: same filter threshold fix as finetune v3. LR unchanged (1e-4 was working well).
+
+---
+
+## Run 3 Results (2026-03-08)
+
+### Run 3a (finetune v3) — FAILED AGAIN
+
+Resumed from v2 step 6500 with LR lowered from 2e-4 → 5e-5. **Same permanent collapse:**
+- Steps 6500–~12600: loss oscillating 0.03–0.19, some spikes to 15.5 but recovering
+- **Step ~12700: permanent collapse** — loss locked at ~15.5, every step
+- Killed at step ~12780
+
+LR 5e-5 only delayed the collapse (step 12.7k vs 6.9k in v2) but did not prevent it.
+The DL3DV finetune approach with 6 context views, batch_size=1, and strong anti-fog
+losses is fundamentally unstable. **Decision: abandon DL3DV finetune direction.**
+
+### Retrospective: Run 1 Was Actually Stable
+
+Analysis of Run 1 logs revealed the original training was **perfectly stable** (50k steps,
+zero spikes > 0.1, smooth loss curve 0.021 → 0.013). The problem was inference, not training.
+
+**Critical CHRONICLE correction:** Run 1 config was incorrectly documented as using
+`relative_pose: false` and `pose_norm_method: "none"`. The actual hydra config shows
+it used `relative_pose: true`, `pose_norm_method: max_pairwise_d`, and `augment: true`
+(inherited from the shoes dataset base config defaults).
+
+Actual Run 1 parameters vs v2/v3:
+| Parameter | Run 1 (actual) | v2 | v3 |
+|-----------|---------------|----|----|
+| LR | **1e-5** | 2e-4 | 5e-5 |
+| batch_size | **4** | 1 | 1 |
+| context views | **2** | 6 | 6 |
+| silhouette | **0.1** | 1.0 | 1.0 |
+| opacity | **0.05** | 0.2 | 0.2 |
+| augment | **true** | false | false |
+
+Run 1 was stable because: (1) very low LR, (2) batch_size 4 smooths gradients,
+(3) weaker loss weights = simpler loss landscape. The v2/v3 explosions were caused
+by too many changes at once (LR 5–20× higher + batch 4→1 + loss weights 10× stronger).
+
+### Run 3b (scratch v2) — RUNNING, HEALTHY
+
+Resumed from v1 step 19500. Passed step 25k+ with no issues:
+- Loss avg at 25k: ~0.21 (continuing to decrease)
+- Speed: 1.01 it/s on L40S
+- No spikes, no filter kills
+- ETA: ~34h remaining (~Monday 07:00 CET)
+
+**Decision:** Let scratch v2 run to completion (150k steps). This is our best candidate.
+DL3DV finetune is abandoned — scratch training with Pi3 backbone is more stable
+and avoids the domain mismatch issues entirely.
