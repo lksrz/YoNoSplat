@@ -159,13 +159,15 @@ class ModelWrapper(LightningModule):
 
     @staticmethod
     def _get_bounds_radius(batch):
-        """Extract per-batch bounds_radius scalar from context.
+        """Extract per-batch bounds_radius as a float from context.
         bounds_radius is stored as [B, ctx_views] but is the same value
-        across views (max camera distance), so we take [:, 0] to get [B]."""
+        across views (max camera distance), so we extract a single float."""
         br = batch["context"].get("bounds_radius")
-        if br is not None and br.dim() > 1:
-            return br[:, 0]
-        return br
+        if br is None:
+            return None
+        if br.dim() > 1:
+            br = br[:, 0]
+        return float(br.item()) if br.numel() == 1 else br
 
     @staticmethod
     def _composite_eval_background(
