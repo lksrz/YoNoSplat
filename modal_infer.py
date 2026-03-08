@@ -279,11 +279,29 @@ def infer(
     # ------------------------------------------------------------------
     # Build novel-view cameras at evenly-spaced azimuth angles
     # ------------------------------------------------------------------
-    # We compute a rough scene centre from context camera positions and orbit around it.
+    # Compute scene centre from where context cameras are LOOKING, not where they ARE.
+    # Each camera looks along +Z in OpenCV convention. We ray-cast from each camera
+    # and find the approximate look-at point.
     ctx_positions = context_extrinsics[:, :3, 3].cpu()  # already normalised
-    scene_centre = ctx_positions.mean(dim=0)            # (3,)
-    radius = (ctx_positions - scene_centre).norm(dim=-1).mean().item()
-    radius = max(radius, 0.5)  # ensure non-zero orbit radius
+    ctx_forwards = context_extrinsics[:, :3, 2].cpu()   # +Z column = forward dir (OpenCV)
+
+    # Estimate depth: use the Gaussian means as a proxy for where the object is
+    gauss_means = gaussians.means[0].detach().cpu()  # (N, 3)
+    if gauss_means.shape[0] > 0:
+        # Use median of Gaussian positions as scene centre (robust to outliers)
+        scene_centre = gauss_means.median(dim=0).values
+        # Orbit radius = mean distance from cameras to scene centre
+        radius = (ctx_positions - scene_centre).norm(dim=-1).mean().item()
+    else:
+        # Fallback: look-at point from camera rays
+        look_at_points = ctx_positions + ctx_forwards * 2.0  # project 2 units along viewing dir
+        scene_centre = look_at_points.mean(dim=0)
+        radius = (ctx_positions - scene_centre).norm(dim=-1).mean().item()
+    radius = max(radius, 0.3)
+
+    print(f"  Context cam positions: {ctx_positions.tolist()}")
+    print(f"  Scene centre (from Gaussians): {scene_centre.tolist()}")
+    print(f"  Orbit radius: {radius:.4f}")
 
     def make_orbit_c2w(azimuth_deg: float, elevation_deg: float = 20.0) -> torch.Tensor:
         """

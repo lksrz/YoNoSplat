@@ -5,17 +5,14 @@
 # │  Copy to shoes_224_finetune_vN.yaml (increment N) before changes.  │
 # │  Log changes in CHRONICLE.md at the project root.                  │
 # │                                                                     │
-# │  Current version: v4 (2026-03-08)                                  │
-# │  Previous: shoes_224_finetune_v3.yaml                              │
+# │  Current version: v3 (2026-03-08)                                  │
+# │  Previous: shoes_224_finetune_v2.yaml                              │
 # │                                                                     │
-# │  v1: First training — LR 1e-5, 2 ctx, batch 4. Stable 50k steps,  │
-# │      learned geometry but no color. Inference was broken (scene     │
-# │      centre bug). Fixed inference shows recognizable shoe shape.    │
-# │  v2: LR 2e-4, 6 ctx, batch 1. Gradient explosion at step 6880.    │
-# │  v3: LR 5e-5, 6 ctx, batch 1. Collapsed again at step 12700.      │
-# │  v4: Resume from v1 step 50k. Keep stable v1 params (LR 1e-5),    │
-# │      increase ctx 2→4, boost silhouette/opacity to push color,     │
-# │      disable augmentation (prevents mirrored shoes).               │
+# │  v1: First training — LR 1e-5, 2 ctx views, no pose norm. FAILED. │
+# │  v2: LR 2e-4, 6 ctx, max_pairwise_d. Gradient explosion at step   │
+# │      6880 (permanent collapse to loss ~15.5). FAILED.              │
+# │  v3: Lower LR 5e-5, raise loss filter thresholds to prevent        │
+# │      false-positive skipping. Resume from v2 step 6500.            │
 # └──────────────────────────────────────────────────────────────────────┘
 
 defaults:
@@ -25,17 +22,17 @@ defaults:
   - override /loss: [mse, lpips, silhouette, opacity, intrinsic, pose]
 
 wandb:
-  name: shoes_224_finetune_v4
-  tags: [shoes, 224x224, v4, resume-v1]
+  name: shoes_224_finetune_v3
+  tags: [shoes, 224x224, v3]
 
 model:
   encoder:
     name: yonosplat
     pose_free: true
     pretrained_weights: ""
-    # v1 used 5k→15k; keep same since model is already trained
-    gt_pose_sampling_decay_start_step: 5000
-    gt_pose_sampling_decay_end_step: 15000
+    # Match DL3DV schedule: train with GT poses much longer before decay
+    gt_pose_sampling_decay_start_step: 80000
+    gt_pose_sampling_decay_end_step: 100000
     gt_pose_final_sample_ratio: 0.9
     backbone:
       predict_intrinsics: true
@@ -48,14 +45,13 @@ dataset:
   shoes:
     input_image_shape: [224, 224]
     original_image_shape: [512, 512]
-    # Same as Run 1 actual config (inherited from base_dataset.yaml)
+    # Match DL3DV: use relative poses and scale normalization
     relative_pose: true
     pose_norm_method: "max_pairwise_d"
-    # v4: disable augmentation (prevents horizontal flips of asymmetric shoes)
     augment: false
     val_fraction: 0.05
     view_sampler:
-      num_context_views: 4
+      num_context_views: 6
       num_target_views: 1
       min_context_angle_deg: 20.0
       max_context_angle_deg: 60.0
@@ -66,8 +62,8 @@ dataset:
       max_img_per_gpu: 8
 
 optimizer:
-  # v4: same LR as Run 1 — proven stable for 50k steps
-  lr: 1e-5
+  # v3: lowered from 2e-4 (caused gradient explosion at step 6880)
+  lr: 5e-5
   warm_up_steps: 1000
   backbone_lr_multiplier: 0.1
 
@@ -75,8 +71,8 @@ data_loader:
   train:
     num_workers: 4
     persistent_workers: true
-    # v4: batch 2 (down from 4 to fit 4 ctx views on L40S-48GB)
-    batch_size: 2
+    # batch_size 1 with 6 context views to fit A100-80GB (same as DL3DV)
+    batch_size: 1
   val:
     num_workers: 0
     persistent_workers: false
@@ -85,8 +81,7 @@ data_loader:
     persistent_workers: false
 
 trainer:
-  # Resume from step 50k, train 50k more
-  max_steps: 100000
+  max_steps: 150000
   val_check_interval: 5000
 
 train:
@@ -95,7 +90,8 @@ train:
   eval_data_length: 200
   eval_time_skip_steps: 3
   train_ignore_large_loss_after_steps: 20000
-  # High thresholds — only catch genuine explosions
+  # v3: raise thresholds — defaults (0.06 MSE, 0.2 total) are calibrated
+  # for DL3DV and were skipping ALL shoe samples after step 20k
   train_ignore_large_loss: 5.0
   train_ignore_large_loss_mse: 1.0
   train_ignore_large_loss_pose: 5.0
@@ -105,7 +101,6 @@ checkpointing:
   save_weights_only: false
 
 loss:
-  # v4: strong silhouette/opacity to force color and sharp edges
   silhouette:
     weight: 1.0
   opacity:
