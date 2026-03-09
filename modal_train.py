@@ -78,8 +78,8 @@ def train(
     max_steps: int = 150000,
     batch_size: int = 4,
     num_workers: int = 4,
-    num_context_views: int = 6,
-    num_target_views: int = 1,
+    num_context_views: int = 2,
+    num_target_views: int = 4,
     resume_from: str = None,
     wandb_key: str = None,
     finetune: str = "dl3dv",  # "re10k", "dl3dv", "pi3", or "none"
@@ -139,9 +139,9 @@ def train(
     else:
         print("Training from scratch (no pretrained weights)")
 
-    # Default learning rates (v2: match pretrained LR for aggressive domain adaptation)
+    # Default learning rates (v6: 5e-5 compromise between paper 2e-4 and stable 1e-5)
     if lr is None and resume_from is None:
-        lr = 2e-4 if finetune_ckpt else 1e-4
+        lr = 5e-5 if finetune_ckpt else 1e-4
     print(f"Learning rate: {lr if lr is not None else 'resume checkpoint state'}")
     max_img_per_gpu = max(1, batch_size * max(1, num_context_views))
     print(f"Mixed sampler max_img_per_gpu: {max_img_per_gpu}")
@@ -232,7 +232,7 @@ def main(
     batch_size: int = 4,
     num_workers: int = 4,
     num_context_views: int = 2,
-    num_target_views: int = 1,
+    num_target_views: int = 4,
     resume_from: str = None,
     wandb_key: str = None,
     check_only: bool = False,

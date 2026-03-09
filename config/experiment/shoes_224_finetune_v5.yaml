@@ -5,37 +5,35 @@
 # │  Copy to shoes_224_finetune_vN.yaml (increment N) before changes.  │
 # │  Log changes in CHRONICLE.md at the project root.                  │
 # │                                                                     │
-# │  Current version: v6 (2026-03-09)                                  │
-# │  Previous: shoes_224_finetune_v5.yaml                              │
+# │  Current version: v5 (2026-03-09)                                  │
+# │  Previous: shoes_224_finetune_v4.yaml                              │
 # │                                                                     │
 # │  v1: 2 ctx, batch 4, LR 1e-5. Best geometry but no color.         │
 # │  v2: 6 ctx, LR 2e-4. Gradient explosion. FAILED.                  │
 # │  v3: 6 ctx, LR 5e-5. Collapsed again. FAILED.                     │
 # │  v4: Resume v1, 4 ctx. Worse than v1 (ctx change destructive).    │
-# │  v5: Fresh DL3DV, black BG, 1 target. Killed at step ~500.        │
-# │  v6: Paper-aligned params. 4 targets, higher LR, late GT decay,   │
-# │      no silhouette loss, opacity 0.01. Black BG kept.             │
+# │  v5: Fresh DL3DV finetune. BLACK background to force color         │
+# │      learning. Keep v1 stable params (2 ctx, batch 4, LR 1e-5).   │
 # └──────────────────────────────────────────────────────────────────────┘
 
 defaults:
   - /dataset@_group_.shoes: shoes
   - override /model/encoder: yonosplat
   - override /model/encoder/backbone: local_global
-  # v6: removed silhouette loss (not in paper)
-  - override /loss: [mse, lpips, opacity, intrinsic, pose]
+  - override /loss: [mse, lpips, silhouette, opacity, intrinsic, pose]
 
 wandb:
-  name: shoes_224_finetune_v6
-  tags: [shoes, 224x224, v6, black-bg, paper-aligned]
+  name: shoes_224_finetune_v5
+  tags: [shoes, 224x224, v5, black-bg]
 
 model:
   encoder:
     name: yonosplat
     pose_free: true
     pretrained_weights: ""
-    # v6: Paper defaults — GT pose decay at 80k→100k (not 5k→15k)
-    gt_pose_sampling_decay_start_step: 80000
-    gt_pose_sampling_decay_end_step: 100000
+    # Same as Run 1
+    gt_pose_sampling_decay_start_step: 5000
+    gt_pose_sampling_decay_end_step: 15000
     gt_pose_final_sample_ratio: 0.9
     backbone:
       predict_intrinsics: true
@@ -50,15 +48,15 @@ dataset:
     original_image_shape: [512, 512]
     # Let base_dataset.yaml defaults win: relative_pose=true, max_pairwise_d
     # (DO NOT override — Run 1 used these defaults and was stable)
-    # BLACK background — forces model to learn actual shoe colors
+    # v5: BLACK background — forces model to learn actual shoe colors
+    # (white/random BG rewarded gray/white Gaussians → no color)
     train_background_mode: black
     eval_background_mode: black
     augment: false
     val_fraction: 0.05
     view_sampler:
       num_context_views: 2
-      # v6: 4 target views (paper default — 4x more color supervision)
-      num_target_views: 4
+      num_target_views: 1
       min_context_angle_deg: 20.0
       max_context_angle_deg: 60.0
       fallback_min_context_angle_deg: 10.0
@@ -68,8 +66,8 @@ dataset:
       max_img_per_gpu: 8
 
 optimizer:
-  # v6: 5x higher than Run 1 (compromise: paper uses 2e-4, Run 1 stable at 1e-5)
-  lr: 5e-5
+  # Same as Run 1 — proven stable for 50k steps
+  lr: 1e-5
   warm_up_steps: 1000
   backbone_lr_multiplier: 0.1
 
@@ -86,8 +84,7 @@ data_loader:
     persistent_workers: false
 
 trainer:
-  # v6: longer training for late GT pose decay (80k→100k)
-  max_steps: 150000
+  max_steps: 50000
   val_check_interval: 5000
 
 train:
@@ -106,6 +103,8 @@ checkpointing:
   save_weights_only: false
 
 loss:
-  # v6: paper default — very light opacity regularization
+  # v5: moderate boost (not as aggressive as v4)
+  silhouette:
+    weight: 0.5
   opacity:
-    weight: 0.01
+    weight: 0.1
