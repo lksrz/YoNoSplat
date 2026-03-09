@@ -43,7 +43,7 @@ yonosplat_image = (
     )
     # Clone YoNoSplat repo + download pretrained weights
     .run_commands(
-        "git clone https://github.com/WEARFITS/wearfits-splat.git /opt/YoNoSplat",
+        "git clone https://github.com/lksrz/YoNoSplat.git /opt/YoNoSplat",
         "mkdir -p /opt/YoNoSplat/pretrained_weights",
         # Pi3 backbone (needed for training from scratch)
         "wget -q -O /opt/YoNoSplat/pretrained_weights/pi3.safetensors "
