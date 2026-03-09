@@ -252,14 +252,95 @@ Run 1 was stable because: (1) very low LR, (2) batch_size 4 smooths gradients,
 (3) weaker loss weights = simpler loss landscape. The v2/v3 explosions were caused
 by too many changes at once (LR 5–20× higher + batch 4→1 + loss weights 10× stronger).
 
-### Run 3b (scratch v2) — RUNNING, HEALTHY
+### Run 3b (scratch v2) — KILLED at step 67k (2026-03-09)
 
-Resumed from v1 step 19500. Passed step 25k+ with no issues:
-- Loss avg at 25k: ~0.21 (continuing to decrease)
-- Speed: 1.01 it/s on L40S
-- No spikes, no filter kills
-- ETA: ~34h remaining (~Monday 07:00 CET)
+Resumed from v1 step 19500. Training was stable (no spikes, no filter kills)
+but inference quality at step 67k was far behind Run 4 finetune:
+- Loss avg at 67k: ~0.11–0.15
+- Inference renders: diffuse gray blobs, no recognizable shoe shape
+- Only 1535/301k Gaussians above opacity 0.10
+- Compare: Run 4 finetune at step 85k had clear shoe silhouette (2250 Gaussians)
 
-**Decision:** Let scratch v2 run to completion (150k steps). This is our best candidate.
-DL3DV finetune is abandoned — scratch training with Pi3 backbone is more stable
-and avoids the domain mismatch issues entirely.
+**Decision:** Killed scratch training. The Pi3-only backbone needs too many steps
+to learn 3D reconstruction from scratch. DL3DV finetune produces better geometry
+even at half the training steps.
+
+---
+
+## Run 4 — Resume Run 1 with Stronger Losses (2026-03-08 → 2026-03-09)
+
+**Config:** `shoes_224_finetune.yaml` (v4)
+**Resume from:** Run 1 checkpoint `last.ckpt` (step 50000)
+**Goal:** Keep Run 1's stable training, boost color and opacity with stronger losses.
+
+### Key Insight: Run 1 Was Never Failed
+
+Fixed inference pipeline revealed Run 1 learned recognizable shoe geometry.
+The original "failure" was caused by two inference bugs:
+1. **Scene centre bug:** orbit cameras centred on camera positions, not on the
+   object (Gaussian median). Cameras orbited around themselves → saw nothing.
+2. **Config mismatch:** v1 backup config had `relative_pose: false` but Run 1
+   actually trained with `relative_pose: true` (from base_dataset.yaml defaults).
+
+### Changes from Run 1 (v1)
+| Parameter | Run 1 (v1) | Run 4 (v4) | Rationale |
+|-----------|-----------|-----------|-----------|
+| Context views | 2 | **4** | More geometric/color info |
+| Batch size | 4 | **2** | Fit 4 ctx views on L40S-48GB |
+| Silhouette loss | 0.1 | **1.0** | Force sharp object boundaries |
+| Opacity loss | 0.05 | **0.2** | Force opaque Gaussians |
+| Augment | true | **false** | Prevent mirrored shoes + random BG |
+| LR | 1e-5 | **1e-5** | Same — proven stable |
+| Max steps | 50000 | **100000** | 50k more steps |
+| Loss filters | defaults | **high** | Prevent false-positive skipping |
+
+### Training Progress
+- Step 50000–85000: stable, loss 0.03–0.07 typical (occasional spikes to ~1.8 recovering)
+- Speed: 0.9–1.0 it/s on L40S
+- No collapses, no filter kills
+- ETA: ~Sunday 13:00 CET (step 100k)
+
+### Inference at Step ~85k — WORSE THAN RUN 1
+
+- 2250/200k Gaussians above opacity threshold (vs 1306/100k from Run 1)
+- More Gaussians but worse visual quality: more "garbage" splats around shoe
+- Shoe shape less defined than Run 1
+- **Still no color** — model outputs near-zero SH coefficients
+
+### Root Cause: Context View Change Mid-Training
+
+Changing from 2→4 context views after 50k steps of 2-view training was destructive.
+The encoder's attention patterns and per-view Gaussian predictions were tuned for
+2 views. Adding 2 more views mid-training created conflicting predictions and noise.
+
+**Decision:** Run 4 killed at step ~87k. **Run 1 (step 50k) remains the best model.**
+
+---
+
+## Summary of All Runs
+
+| Run | Approach | Steps | Result | Best Checkpoint |
+|-----|----------|-------|--------|----------------|
+| 1 | DL3DV finetune, 2 ctx, batch 4, LR 1e-5 | 50k | **Best geometry**, no color | `last.ckpt` |
+| 2 | DL3DV finetune, 6 ctx, LR 2e-4 | 7k | Gradient explosion | — |
+| 2b | Pi3 scratch, 6 ctx | 20k | Killed by MSE filter | — |
+| 3a | Resume Run 2, LR 5e-5 | 13k | Gradient explosion | — |
+| 3b | Resume Run 2b, filter fix | 67k | Gray blobs, no shape | — |
+| 4 | Resume Run 1, 4 ctx, strong losses | 87k | Worse than Run 1 | — |
+
+### Key Lessons
+
+1. **Run 1 was the best all along** — the problem was inference, not training
+2. **Don't change context views mid-training** — encoder patterns are locked in
+3. **Scratch training needs >> 150k steps** for object reconstruction
+4. **No color across ALL runs** — fundamental issue with SH coefficient prediction
+5. **Inference bugs can mask good training**: scene centre and config mismatch
+   hid Run 1's quality for days
+
+### Remaining Problem: No Color
+
+All models produce near-zero SH coefficients. Hypotheses:
+- DL3DV backbone trained on full scenes; white-background shoes are out of distribution
+- MSE loss on white background rewards gray/transparent Gaussians
+- `train_background_mode: random` may confuse color learning
+- Model may need explicit color supervision or different loss formulation
