@@ -317,6 +317,70 @@ The encoder's attention patterns and per-view Gaussian predictions were tuned fo
 
 ---
 
+## Run 5 — Black Background, v1 Params (2026-03-09)
+
+**Config:** `shoes_224_finetune.yaml` (v5)
+**Pretrained from:** DL3DV checkpoint (fresh, no resume)
+**Goal:** Force color learning with black background while keeping Run 1's stable params.
+
+### Key Changes from Run 1
+- `train_background_mode: black` / `eval_background_mode: black`
+- `augment: false` (prevent horizontal reflections of asymmetric shoes)
+- Silhouette loss: 0.5, Opacity: 0.1
+
+### Result — KILLED at step ~500 (2026-03-09)
+
+Killed immediately to launch Run 6 with paper-aligned parameters.
+Paper analysis revealed critical parameter mismatches (1 target view vs paper's 4,
+LR 20× too low, GT pose decay far too early, silhouette loss not in paper).
+Not worth running v5 — addressing root causes in v6 instead.
+
+---
+
+## Run 6 — Paper-Aligned Parameters (2026-03-09)
+
+**Config:** `shoes_224_finetune.yaml` (v6)
+**Pretrained from:** DL3DV checkpoint (fresh, no resume)
+**Modal App ID:** `ap-YZe9FxDc2KvZsetYJXhkI2`
+**Goal:** Align with paper defaults for color learning + keep black BG.
+
+### Paper Analysis — Key Mismatches Found
+
+Reading the YoNoSplat paper (arxiv 2511.07321v1) revealed our runs diverged
+significantly from paper defaults:
+
+| Parameter | Our Runs 1-5 | Paper Default | Impact |
+|-----------|-------------|---------------|--------|
+| Target views | **1** | **4** | 4× less color supervision per step |
+| Learning rate | 1e-5 | 2e-4 | 20× slower adaptation |
+| GT pose decay | 5k→15k | 80k→100k | Model forced to predict poses too early |
+| Silhouette loss | 0.1–1.0 | **none** | Extra loss not in paper, may hurt |
+| Opacity weight | 0.05–0.2 | **0.01** | Over-regularizing opacity |
+
+### v6 Parameters
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| Learning rate | **5e-5** | Compromise: paper 2e-4, stable 1e-5 |
+| Backbone LR | **5e-6** | multiplier 0.1 |
+| Context views | 2 | Same as Run 1 |
+| Target views | **4** | Paper default — critical for color |
+| Batch size | 4 | Same as Run 1 |
+| GT pose decay start | **80,000** | Paper default |
+| GT pose decay end | **100,000** | Paper default |
+| Silhouette loss | **removed** | Not in paper |
+| Opacity weight | **0.01** | Paper default |
+| Background | **black** | Our addition (force color learning) |
+| Augment | false | Prevent shoe mirroring |
+| Max steps | **150,000** | Longer for late GT decay |
+| Loss filter thresholds | high (5.0/1.0/5.0) | Only catch explosions |
+
+### Training Progress
+- Step 0: loss 0.503 (expected — new params)
+- Speed: ~0.18 it/s initial (L40S-48GB), expected to speed up
+- No OOM with 4 target views + batch 4
+
+---
+
 ## Summary of All Runs
 
 | Run | Approach | Steps | Result | Best Checkpoint |
@@ -327,6 +391,8 @@ The encoder's attention patterns and per-view Gaussian predictions were tuned fo
 | 3a | Resume Run 2, LR 5e-5 | 13k | Gradient explosion | — |
 | 3b | Resume Run 2b, filter fix | 67k | Gray blobs, no shape | — |
 | 4 | Resume Run 1, 4 ctx, strong losses | 87k | Worse than Run 1 | — |
+| 5 | DL3DV finetune, black BG, v1 params | ~500 | Killed for Run 6 | — |
+| 6 | DL3DV finetune, paper-aligned, black BG | running | TBD | — |
 
 ### Key Lessons
 
@@ -336,11 +402,14 @@ The encoder's attention patterns and per-view Gaussian predictions were tuned fo
 4. **No color across ALL runs** — fundamental issue with SH coefficient prediction
 5. **Inference bugs can mask good training**: scene centre and config mismatch
    hid Run 1's quality for days
+6. **Read the paper first** — our params diverged significantly from paper defaults
 
 ### Remaining Problem: No Color
 
-All models produce near-zero SH coefficients. Hypotheses:
-- DL3DV backbone trained on full scenes; white-background shoes are out of distribution
-- MSE loss on white background rewards gray/transparent Gaussians
-- `train_background_mode: random` may confuse color learning
-- Model may need explicit color supervision or different loss formulation
+SH coefficients are NOT zero (mean=1.41, std=2.28) but biased toward white (RGB≈0.90).
+Root causes identified:
+- White/random background rewards gray/transparent Gaussians (fixed: black BG)
+- Only 1 target view = too little color supervision per step (fixed: 4 targets)
+- LR too low for domain adaptation (fixed: 5e-5)
+- GT pose decay too early, model predicting noisy poses (fixed: 80k→100k)
+- Silhouette loss + high opacity regularization may suppress colored Gaussians (fixed: removed/lowered)
