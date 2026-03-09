@@ -5,15 +5,17 @@
 # │  Copy to shoes_224_finetune_vN.yaml (increment N) before changes.  │
 # │  Log changes in CHRONICLE.md at the project root.                  │
 # │                                                                     │
-# │  Current version: v5 (2026-03-09)                                  │
-# │  Previous: shoes_224_finetune_v4.yaml                              │
+# │  Current version: v4 (2026-03-08)                                  │
+# │  Previous: shoes_224_finetune_v3.yaml                              │
 # │                                                                     │
-# │  v1: 2 ctx, batch 4, LR 1e-5. Best geometry but no color.         │
-# │  v2: 6 ctx, LR 2e-4. Gradient explosion. FAILED.                  │
-# │  v3: 6 ctx, LR 5e-5. Collapsed again. FAILED.                     │
-# │  v4: Resume v1, 4 ctx. Worse than v1 (ctx change destructive).    │
-# │  v5: Fresh DL3DV finetune. BLACK background to force color         │
-# │      learning. Keep v1 stable params (2 ctx, batch 4, LR 1e-5).   │
+# │  v1: First training — LR 1e-5, 2 ctx, batch 4. Stable 50k steps,  │
+# │      learned geometry but no color. Inference was broken (scene     │
+# │      centre bug). Fixed inference shows recognizable shoe shape.    │
+# │  v2: LR 2e-4, 6 ctx, batch 1. Gradient explosion at step 6880.    │
+# │  v3: LR 5e-5, 6 ctx, batch 1. Collapsed again at step 12700.      │
+# │  v4: Resume from v1 step 50k. Keep stable v1 params (LR 1e-5),    │
+# │      increase ctx 2→4, boost silhouette/opacity to push color,     │
+# │      disable augmentation (prevents mirrored shoes).               │
 # └──────────────────────────────────────────────────────────────────────┘
 
 defaults:
@@ -23,15 +25,15 @@ defaults:
   - override /loss: [mse, lpips, silhouette, opacity, intrinsic, pose]
 
 wandb:
-  name: shoes_224_finetune_v5
-  tags: [shoes, 224x224, v5, black-bg]
+  name: shoes_224_finetune_v4
+  tags: [shoes, 224x224, v4, resume-v1]
 
 model:
   encoder:
     name: yonosplat
     pose_free: true
     pretrained_weights: ""
-    # Same as Run 1
+    # v1 used 5k→15k; keep same since model is already trained
     gt_pose_sampling_decay_start_step: 5000
     gt_pose_sampling_decay_end_step: 15000
     gt_pose_final_sample_ratio: 0.9
@@ -46,16 +48,14 @@ dataset:
   shoes:
     input_image_shape: [224, 224]
     original_image_shape: [512, 512]
-    # Let base_dataset.yaml defaults win: relative_pose=true, max_pairwise_d
-    # (DO NOT override — Run 1 used these defaults and was stable)
-    # v5: BLACK background — forces model to learn actual shoe colors
-    # (white/random BG rewarded gray/white Gaussians → no color)
-    train_background_mode: black
-    eval_background_mode: black
+    # Same as Run 1 actual config (inherited from base_dataset.yaml)
+    relative_pose: true
+    pose_norm_method: "max_pairwise_d"
+    # v4: disable augmentation (prevents horizontal flips of asymmetric shoes)
     augment: false
     val_fraction: 0.05
     view_sampler:
-      num_context_views: 2
+      num_context_views: 4
       num_target_views: 1
       min_context_angle_deg: 20.0
       max_context_angle_deg: 60.0
@@ -66,7 +66,7 @@ dataset:
       max_img_per_gpu: 8
 
 optimizer:
-  # Same as Run 1 — proven stable for 50k steps
+  # v4: same LR as Run 1 — proven stable for 50k steps
   lr: 1e-5
   warm_up_steps: 1000
   backbone_lr_multiplier: 0.1
@@ -75,7 +75,8 @@ data_loader:
   train:
     num_workers: 4
     persistent_workers: true
-    batch_size: 4
+    # v4: batch 2 (down from 4 to fit 4 ctx views on L40S-48GB)
+    batch_size: 2
   val:
     num_workers: 0
     persistent_workers: false
@@ -84,7 +85,8 @@ data_loader:
     persistent_workers: false
 
 trainer:
-  max_steps: 50000
+  # Resume from step 50k, train 50k more
+  max_steps: 100000
   val_check_interval: 5000
 
 train:
@@ -103,8 +105,8 @@ checkpointing:
   save_weights_only: false
 
 loss:
-  # v5: moderate boost (not as aggressive as v4)
+  # v4: strong silhouette/opacity to force color and sharp edges
   silhouette:
-    weight: 0.5
+    weight: 1.0
   opacity:
-    weight: 0.1
+    weight: 0.2
